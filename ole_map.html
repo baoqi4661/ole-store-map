@@ -1,0 +1,1053 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>OLE门店品牌地图</title>
+    <!-- 高德地图API（v1.4.15稳定版） -->
+    <script type="text/javascript" src="https://webapi.amap.com/maps?v=1.4.15&key=8f73210775ae86e50fccaa7861ceee05"></script>
+    <!-- 引入Excel数据解析库 -->
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+    <style>
+        * {margin: 0; padding: 0; box-sizing: border-box;}
+        body {overflow: hidden;}
+        
+        /* 顶部筛选栏样式 */
+        .brand-filter-bar {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 60px;
+            background: rgba(255, 255, 255, 0.95);
+            z-index: 999;
+            display: flex;
+            align-items: center;
+            padding: 0 20px;
+            gap: 10px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            overflow-x: auto;
+            overflow-y: hidden;
+        }
+        
+        /* 按钮样式 */
+        .brand-filter-bar button {
+            padding: 8px 16px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            white-space: nowrap;
+            transition: all 0.2s;
+        }
+        .btn-all {background: #1890ff; color: white;}
+        .btn-all:hover {background: #096dd9;}
+        .btn-brand {background: #f0f2f5; color: #333;}
+        .btn-brand:hover {background: #e6f7ff; color: #1890ff;}
+        .btn-brand.active {background: #1890ff; color: white;}
+        
+        /* 中间门店数提示层 */
+        .center-count-tooltip {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(24, 144, 255, 0.9);
+            color: white;
+            padding: 20px 40px;
+            border-radius: 10px;
+            font-size: 36px;
+            font-weight: bold;
+            white-space: nowrap;
+            box-shadow: 0 8px 16px rgba(0,0,0,0.3);
+            z-index: 2000;
+            animation: fadeInOut 3s ease forwards;
+            pointer-events: none; /* 不影响地图操作 */
+        }
+        
+        /* 淡入淡出动画：1秒淡入，1秒保持，1秒淡出 */
+        @keyframes fadeInOut {
+            0% {opacity: 0; transform: translate(-50%, -50%) scale(0.8);}
+            20% {opacity: 1; transform: translate(-50%, -50%) scale(1.1);}
+            50% {opacity: 1; transform: translate(-50%, -50%) scale(1);}
+            100% {opacity: 0; transform: translate(-50%, -50%) scale(0.8);}
+        }
+        
+        /* 数据加载按钮样式 */
+        .load-data-btn {
+            position: absolute;
+            top: 70px;
+            left: 20px;
+            z-index: 999;
+            padding: 8px 16px;
+            background: #52c41a;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+        .load-data-btn:hover {background: #389e0d;}
+        
+        /* 地图容器样式 */
+        #map-container {width: 100vw; height: 100vh; margin-top: 60px;}
+        
+        /* 隐藏滚动条 */
+        .brand-filter-bar::-webkit-scrollbar {display: none;}
+        .brand-filter-bar {scrollbar-width: none; -ms-overflow-style: none;}
+        #fileInput {display: none;}
+    </style>
+</head>
+<body>
+    <div class="brand-filter-bar" id="filterBar">
+        <button class="btn-all" onclick="showAllStores()">全部门店（OLE图标）</button>
+        <button class="btn-brand" onclick="filterByBrand('长工酱油')">长工酱油</button>
+        <button class="btn-brand" onclick="filterByBrand('山本三轮')">山本三轮</button>
+        <button class="btn-brand" onclick="filterByBrand('丸胜高田')">丸胜高田</button>
+        <button class="btn-brand" onclick="filterByBrand('池莉三轮')">池莉三轮</button>
+        <button class="btn-brand" onclick="filterByBrand('东亚')">东亚</button>
+        <button class="btn-brand" onclick="filterByBrand('七尾')">七尾</button>
+        <button class="btn-brand" onclick="filterByBrand('鸭川')">鸭川</button>
+        <button class="btn-brand" onclick="filterByBrand('野村')">野村</button>
+        <button class="btn-brand" onclick="filterByBrand('伊之助')">伊之助</button>
+        <button class="btn-brand" onclick="filterByBrand('玛璐托')">玛璐托</button>
+    </div>
+    <button class="load-data-btn" style="display: none;"onclick="document.getElementById('fileInput').click()">📂 选择门店Excel数据文件</button>
+    <input type="file" id="fileInput" accept=".xlsx, .xls" onchange="loadStoreData(this.files)">
+    <div id="map-container"></div>
+
+    <script>
+        // 品牌图标映射（和你的文件完全匹配）
+        const BRAND_ICON_MAP = {
+            "OLE": "ole_store.png",
+            "长工酱油": "brand_cg.png",
+            "山本三轮": "brand_sb.png",
+            "丸胜高田": "brand_ws.png",
+            "池莉三轮": "brand_cl.png",
+            "东亚": "brand_dy.png",
+            "七尾": "brand_qw.png",
+            "鸭川": "brand_ycm.png",
+            "野村": "brand_yc.png",
+            "伊之助": "brand_yzz.png",
+            "玛璐托": "brand_mlt.png"
+        };
+
+        let map, storeData = [], allMarkers = [];
+        
+        const embeddedData = [
+        { "brand": "长工酱油", "storeName": "Ole大连柏威年店", "lng": 121.628771, "lat": 38.918114 },
+{ "brand": "长工酱油", "storeName": "Ole上海浦东嘉里店", "lng": 121.564894, "lat": 31.211943 },
+{ "brand": "长工酱油", "storeName": "Ole石家庄万象城店", "lng": 114.478203, "lat": 38.042312 },
+{ "brand": "长工酱油", "storeName": "Ole广州天汇广场店", "lng": 113.3321, "lat": 23.115501 },
+{ "brand": "长工酱油", "storeName": "Ole广州太古汇店", "lng": 113.332479, "lat": 23.134218 },
+{ "brand": "长工酱油", "storeName": "Ole南宁万象城店", "lng": 108.392386, "lat": 22.810977 },
+{ "brand": "长工酱油", "storeName": "Ole海口万象城店", "lng": 110.315015, "lat": 20.027521 },
+{ "brand": "长工酱油", "storeName": "Ole深圳万象天地店", "lng": 113.956254, "lat": 22.541773 },
+{ "brand": "长工酱油", "storeName": "Ole宁波和义大道店", "lng": 121.555726, "lat": 29.87332 },
+{ "brand": "长工酱油", "storeName": "Ole长春万象城店", "lng": 125.327782, "lat": 43.879425 },
+{ "brand": "长工酱油", "storeName": "Ole深圳壹方城店", "lng": 113.887203, "lat": 22.552722 },
+{ "brand": "长工酱油", "storeName": "Ole北京金融街店", "lng": 116.361513, "lat": 39.915576 },
+{ "brand": "长工酱油", "storeName": "Ole深圳湾万象城二期店", "lng": 113.942034, "lat": 22.514808 },
+{ "brand": "长工酱油", "storeName": "Ole贵阳万象汇店", "lng": 106.621518, "lat": 26.620104 },
+{ "brand": "长工酱油", "storeName": "Ole深圳万象城店", "lng": 114.111165, "lat": 22.538681 },
+{ "brand": "长工酱油", "storeName": "Ole青岛万象城店", "lng": 120.378713, "lat": 36.065826 },
+{ "brand": "长工酱油", "storeName": "Ole重庆万象城店", "lng": 106.518383, "lat": 29.5154 },
+{ "brand": "长工酱油", "storeName": "Ole合肥万象城店", "lng": 117.229984, "lat": 31.798915 },
+{ "brand": "长工酱油", "storeName": "Ole济南万象城店", "lng": 117.099525, "lat": 36.658114 },
+{ "brand": "长工酱油", "storeName": "Ole沈阳万象城店", "lng": 123.434541, "lat": 41.775771 },
+{ "brand": "长工酱油", "storeName": "Ole北京大悦城店", "lng": 116.517886, "lat": 39.924529 },
+{ "brand": "长工酱油", "storeName": "Ole上海港汇店", "lng": 121.43778, "lat": 31.194926 },
+{ "brand": "长工酱油", "storeName": "Ole厦门万象城店", "lng": 118.11101, "lat": 24.47225 },
+{ "brand": "长工酱油", "storeName": "Ole上海万象城店", "lng": 121.39302, "lat": 31.120899 },
+{ "brand": "长工酱油", "storeName": "Ole深圳深圳湾店", "lng": 113.94469, "lat": 22.514867 },
+{ "brand": "长工酱油", "storeName": "Ole南京金陵中环店", "lng": 118.782177, "lat": 32.040937 },
+{ "brand": "长工酱油", "storeName": "Ole郑州郑东万象城店", "lng": 113.764208, "lat": 34.765546 },
+{ "brand": "长工酱油", "storeName": "Ole呼和浩特万象城店", "lng": 111.674675, "lat": 40.804766 },
+{ "brand": "长工酱油", "storeName": "Ole深圳深业上城店", "lng": 114.070306, "lat": 22.557091 },
+{ "brand": "长工酱油", "storeName": "Ole兰州万象城店", "lng": 103.845034, "lat": 36.053615 },
+{ "brand": "长工酱油", "storeName": "Ole西安中大国际店", "lng": 108.897341, "lat": 34.221874 },
+{ "brand": "长工酱油", "storeName": "Ole上海静安嘉里店", "lng": 121.450059, "lat": 31.224105 },
+{ "brand": "长工酱油", "storeName": "Ole杭州万象城店", "lng": 120.213715, "lat": 30.248908 },
+{ "brand": "长工酱油", "storeName": "Ole杭州嘉里店", "lng": 120.162179, "lat": 30.260722 },
+{ "brand": "长工酱油", "storeName": "Ole太原万象城店", "lng": 112.528539, "lat": 37.807606 },
+{ "brand": "长工酱油", "storeName": "Ole天津万象城店", "lng": 117.212016, "lat": 39.089993 },
+{ "brand": "长工酱油", "storeName": "Ole大连恒隆店", "lng": 121.609269, "lat": 38.906954 },
+{ "brand": "长工酱油", "storeName": "Ole成都万象城店", "lng": 104.116503, "lat": 30.649066 },
+{ "brand": "山本三轮", "storeName": "Ole广州天汇广场店", "lng": 113.3321, "lat": 23.115501 },
+{ "brand": "山本三轮", "storeName": "Ole无锡恒隆店", "lng": 120.297049, "lat": 31.574951 },
+{ "brand": "山本三轮", "storeName": "Ole苏州中心店", "lng": 120.677112, "lat": 31.31621 },
+{ "brand": "山本三轮", "storeName": "blt珠海环宇城店", "lng": 113.524757, "lat": 22.233977 },
+{ "brand": "山本三轮", "storeName": "Ole沈阳万象城店", "lng": 123.434541, "lat": 41.775771 },
+{ "brand": "山本三轮", "storeName": "Ole深圳深业上城店", "lng": 114.070306, "lat": 22.557091 },
+{ "brand": "山本三轮", "storeName": "Ole上海浦东嘉里店", "lng": 121.564894, "lat": 31.211943 },
+{ "brand": "山本三轮", "storeName": "Ole深圳卓悦中心店", "lng": 114.065459, "lat": 22.536245 },
+{ "brand": "山本三轮", "storeName": "Ole杭州万象城店", "lng": 120.213715, "lat": 30.248908 },
+{ "brand": "山本三轮", "storeName": "Ole深圳壹方城店", "lng": 113.887203, "lat": 22.552722 },
+{ "brand": "山本三轮", "storeName": "Ole海口万象城店", "lng": 110.315015, "lat": 20.027521 },
+{ "brand": "山本三轮", "storeName": "Ole上海静安嘉里店", "lng": 121.450059, "lat": 31.224105 },
+{ "brand": "山本三轮", "storeName": "Ole广州太古汇店", "lng": 113.332479, "lat": 23.134218 },
+{ "brand": "山本三轮", "storeName": "Ole济南万象城店", "lng": 117.099525, "lat": 36.658114 },
+{ "brand": "山本三轮", "storeName": "Ole深圳深圳湾店", "lng": 113.94469, "lat": 22.514867 },
+{ "brand": "山本三轮", "storeName": "Ole西安万象城店", "lng": 108.949596, "lat": 34.194802 },
+{ "brand": "山本三轮", "storeName": "Ole汕头万象城店", "lng": 116.718507, "lat": 23.36281 },
+{ "brand": "山本三轮", "storeName": "Ole大连恒隆店", "lng": 121.609269, "lat": 38.906954 },
+{ "brand": "山本三轮", "storeName": "Ole深圳万象城店", "lng": 114.111165, "lat": 22.538681 },
+{ "brand": "山本三轮", "storeName": "Ole福州万象城店", "lng": 119.276846, "lat": 26.075202 },
+{ "brand": "山本三轮", "storeName": "Ole深圳万象天地店", "lng": 113.956254, "lat": 22.541773 },
+{ "brand": "丸胜高田", "storeName": "Ole汕头万象城店", "lng": 116.718507, "lat": 23.36281 },
+{ "brand": "池莉三轮", "storeName": "Ole汕头万象城店", "lng": 116.718507, "lat": 23.36281 },
+{ "brand": "山本三轮", "storeName": "Ole厦门万象城店", "lng": 118.11101, "lat": 24.47225 },
+{ "brand": "山本三轮", "storeName": "Ole上海港汇店", "lng": 121.43778, "lat": 31.194926 },
+{ "brand": "山本三轮", "storeName": "Ole北京金融街店", "lng": 116.361513, "lat": 39.915576 },
+{ "brand": "丸胜高田", "storeName": "Ole上海港汇店", "lng": 121.43778, "lat": 31.194926 },
+{ "brand": "东亚", "storeName": "Ole汕头万象城店", "lng": 116.718507, "lat": 23.36281 },
+{ "brand": "七尾", "storeName": "Ole汕头万象城店", "lng": 116.718507, "lat": 23.36281 },
+{ "brand": "丸胜高田", "storeName": "Ole兰州万象城店", "lng": 103.845034, "lat": 36.053615 },
+{ "brand": "鸭川", "storeName": "Ole汕头万象城店", "lng": 116.718507, "lat": 23.36281 },
+{ "brand": "丸胜高田", "storeName": "Ole重庆万象城店", "lng": 106.518383, "lat": 29.5154 },
+{ "brand": "丸胜高田", "storeName": "Ole济南万象城店", "lng": 117.099525, "lat": 36.658114 },
+{ "brand": "丸胜高田", "storeName": "Ole青岛万象城店", "lng": 120.378713, "lat": 36.065826 },
+{ "brand": "丸胜高田", "storeName": "Ole沈阳万象城店", "lng": 123.434541, "lat": 41.775771 },
+{ "brand": "丸胜高田", "storeName": "Ole西安万象城店", "lng": 108.949596, "lat": 34.194802 },
+{ "brand": "丸胜高田", "storeName": "Ole苏州中心店", "lng": 120.677112, "lat": 31.31621 },
+{ "brand": "丸胜高田", "storeName": "Ole厦门宝龙店", "lng": 118.173344, "lat": 24.485234 },
+{ "brand": "野村", "storeName": "Ole汕头万象城店", "lng": 116.718507, "lat": 23.36281 },
+{ "brand": "伊之助", "storeName": "Ole汕头万象城店", "lng": 116.718507, "lat": 23.36281 },
+{ "brand": "玛璐托", "storeName": "Ole汕头万象城店", "lng": 116.718507, "lat": 23.36281 },
+{ "brand": "丸胜高田", "storeName": "blt东莞松山湖万象汇店", "lng": 113.895438, "lat": 22.956651 },
+{ "brand": "东亚", "storeName": "blt东莞松山湖万象汇店", "lng": 113.895438, "lat": 22.956651 },
+{ "brand": "丸胜高田", "storeName": "Ole西安中大国际店", "lng": 108.897341, "lat": 34.221874 },
+{ "brand": "丸胜高田", "storeName": "Ole贵阳万象城店", "lng": 106.62162, "lat": 26.620677 },
+{ "brand": "七尾", "storeName": "blt东莞松山湖万象汇店", "lng": 113.895438, "lat": 22.956651 },
+{ "brand": "丸胜高田", "storeName": "Ole大连恒隆店", "lng": 121.609269, "lat": 38.906954 },
+{ "brand": "丸胜高田", "storeName": "Ole上海静安嘉里店", "lng": 121.450059, "lat": 31.224105 },
+{ "brand": "丸胜高田", "storeName": "Ole合肥万象城店", "lng": 117.229984, "lat": 31.798915 },
+{ "brand": "鸭川", "storeName": "blt东莞松山湖万象汇店", "lng": 113.895438, "lat": 22.956651 },
+{ "brand": "丸胜高田", "storeName": "Ole上海浦东嘉里店", "lng": 121.564894, "lat": 31.211943 },
+{ "brand": "丸胜高田", "storeName": "Ole成都IFS店", "lng": 104.081893, "lat": 30.655003 },
+{ "brand": "野村", "storeName": "blt东莞松山湖万象汇店", "lng": 113.895438, "lat": 22.956651 },
+{ "brand": "伊之助", "storeName": "blt东莞松山湖万象汇店", "lng": 113.895438, "lat": 22.956651 },
+{ "brand": "玛璐托", "storeName": "blt东莞松山湖万象汇店", "lng": 113.895438, "lat": 22.956651 },
+{ "brand": "丸胜高田", "storeName": "Ole福州万象城店", "lng": 119.276846, "lat": 26.075202 },
+{ "brand": "丸胜高田", "storeName": "Ole济南恒隆店", "lng": 117.024037, "lat": 36.664548 },
+{ "brand": "丸胜高田", "storeName": "Ole无锡万象城店", "lng": 120.282757, "lat": 31.513266 },
+{ "brand": "丸胜高田", "storeName": "blt佛山祖庙店", "lng": 113.113692, "lat": 23.027484 },
+{ "brand": "丸胜高田", "storeName": "Ole太原王府井店", "lng": 112.559201, "lat": 37.823705 },
+{ "brand": "丸胜高田", "storeName": "Ole呼和浩特万象城店", "lng": 111.674675, "lat": 40.804766 },
+{ "brand": "东亚", "storeName": "blt佛山祖庙店", "lng": 113.113692, "lat": 23.027484 },
+{ "brand": "七尾", "storeName": "blt佛山祖庙店", "lng": 113.113692, "lat": 23.027484 },
+{ "brand": "丸胜高田", "storeName": "Ole太原万象城店", "lng": 112.528539, "lat": 37.807606 },
+{ "brand": "丸胜高田", "storeName": "Ole昆明恒隆店", "lng": 102.722626, "lat": 25.037103 },
+{ "brand": "丸胜高田", "storeName": "Ole成都万象城店", "lng": 104.116503, "lat": 30.649066 },
+{ "brand": "鸭川", "storeName": "blt佛山祖庙店", "lng": 113.113692, "lat": 23.027484 },
+{ "brand": "丸胜高田", "storeName": "Ole成都太古里店", "lng": 104.084664, "lat": 30.6536 },
+{ "brand": "野村", "storeName": "blt佛山祖庙店", "lng": 113.113692, "lat": 23.027484 },
+{ "brand": "丸胜高田", "storeName": "Ole贵阳万象汇店", "lng": 106.621518, "lat": 26.620104 },
+{ "brand": "伊之助", "storeName": "blt佛山祖庙店", "lng": 113.113692, "lat": 23.027484 },
+{ "brand": "丸胜高田", "storeName": "Ole无锡恒隆店", "lng": 120.297049, "lat": 31.574951 },
+{ "brand": "玛璐托", "storeName": "blt佛山祖庙店", "lng": 113.113692, "lat": 23.027484 },
+{ "brand": "丸胜高田", "storeName": "Ole杭州万象城店", "lng": 120.213715, "lat": 30.248908 },
+{ "brand": "丸胜高田", "storeName": "Ole深圳卓悦中心店", "lng": 114.065459, "lat": 22.536245 },
+{ "brand": "池莉三轮", "storeName": "Ole深圳卓悦中心店", "lng": 114.065459, "lat": 22.536245 },
+{ "brand": "丸胜高田", "storeName": "Ole北京大悦城店", "lng": 116.517886, "lat": 39.924529 },
+{ "brand": "东亚", "storeName": "Ole深圳卓悦中心店", "lng": 114.065459, "lat": 22.536245 },
+{ "brand": "丸胜高田", "storeName": "Ole石家庄万象城店", "lng": 114.478203, "lat": 38.042312 },
+{ "brand": "丸胜高田", "storeName": "Ole厦门万象城店", "lng": 118.11101, "lat": 24.47225 },
+{ "brand": "丸胜高田", "storeName": "Ole温州印象城店", "lng": 120.701866, "lat": 27.985783 },
+{ "brand": "七尾", "storeName": "Ole深圳卓悦中心店", "lng": 114.065459, "lat": 22.536245 },
+{ "brand": "鸭川", "storeName": "Ole深圳卓悦中心店", "lng": 114.065459, "lat": 22.536245 },
+{ "brand": "丸胜高田", "storeName": "Ole贵阳逸天城店", "lng": 106.722673, "lat": 26.562866 },
+{ "brand": "野村", "storeName": "Ole深圳卓悦中心店", "lng": 114.065459, "lat": 22.536245 },
+{ "brand": "丸胜高田", "storeName": "Ole宁波和义大道店", "lng": 121.555726, "lat": 29.87332 },
+{ "brand": "伊之助", "storeName": "Ole深圳卓悦中心店", "lng": 114.065459, "lat": 22.536245 },
+{ "brand": "丸胜高田", "storeName": "blt沈阳万象汇店", "lng": 123.372651, "lat": 41.795172 },
+{ "brand": "丸胜高田", "storeName": "Ole上海陆家嘴店", "lng": 121.515548, "lat": 31.231384 },
+{ "brand": "玛璐托", "storeName": "Ole深圳卓悦中心店", "lng": 114.065459, "lat": 22.536245 },
+{ "brand": "丸胜高田", "storeName": "Ole北京金融街店", "lng": 116.361513, "lat": 39.915576 },
+{ "brand": "丸胜高田", "storeName": "Ole杭州嘉里店", "lng": 120.162179, "lat": 30.260722 },
+{ "brand": "七尾", "storeName": "blt东莞民盈国贸店", "lng": 113.762777, "lat": 23.01293 },
+{ "brand": "鸭川", "storeName": "blt东莞民盈国贸店", "lng": 113.762777, "lat": 23.01293 },
+{ "brand": "野村", "storeName": "blt东莞民盈国贸店", "lng": 113.762777, "lat": 23.01293 },
+{ "brand": "伊之助", "storeName": "blt东莞民盈国贸店", "lng": 113.762777, "lat": 23.01293 },
+{ "brand": "玛璐托", "storeName": "blt东莞民盈国贸店", "lng": 113.762777, "lat": 23.01293 },
+{ "brand": "池莉三轮", "storeName": "Ole上海静安嘉里店", "lng": 121.450059, "lat": 31.224105 },
+{ "brand": "七尾", "storeName": "blt广州高德置地店", "lng": 113.32664, "lat": 23.120162 },
+{ "brand": "鸭川", "storeName": "blt广州高德置地店", "lng": 113.32664, "lat": 23.120162 },
+{ "brand": "野村", "storeName": "blt广州高德置地店", "lng": 113.32664, "lat": 23.120162 },
+{ "brand": "池莉三轮", "storeName": "Ole苏州中心店", "lng": 120.677112, "lat": 31.31621 },
+{ "brand": "池莉三轮", "storeName": "Ole上海港汇店", "lng": 121.43778, "lat": 31.194926 },
+{ "brand": "伊之助", "storeName": "blt广州高德置地店", "lng": 113.32664, "lat": 23.120162 },
+{ "brand": "池莉三轮", "storeName": "Ole厦门万象城店", "lng": 118.11101, "lat": 24.47225 },
+{ "brand": "池莉三轮", "storeName": "Ole西安万象城店", "lng": 108.949596, "lat": 34.194802 },
+{ "brand": "池莉三轮", "storeName": "Ole大连恒隆店", "lng": 121.609269, "lat": 38.906954 },
+{ "brand": "池莉三轮", "storeName": "Ole杭州万象城店", "lng": 120.213715, "lat": 30.248908 },
+{ "brand": "玛璐托", "storeName": "blt广州高德置地店", "lng": 113.32664, "lat": 23.120162 },
+{ "brand": "丸胜高田", "storeName": "Ole深圳万象城店", "lng": 114.111165, "lat": 22.538681 },
+{ "brand": "池莉三轮", "storeName": "Ole沈阳万象城店", "lng": 123.434541, "lat": 41.775771 },
+{ "brand": "池莉三轮", "storeName": "Ole深圳万象城店", "lng": 114.111165, "lat": 22.538681 },
+{ "brand": "池莉三轮", "storeName": "Ole福州万象城店", "lng": 119.276846, "lat": 26.075202 },
+{ "brand": "池莉三轮", "storeName": "Ole济南万象城店", "lng": 117.099525, "lat": 36.658114 },
+{ "brand": "东亚", "storeName": "Ole深圳万象城店", "lng": 114.111165, "lat": 22.538681 },
+{ "brand": "池莉三轮", "storeName": "Ole上海浦东嘉里店", "lng": 121.564894, "lat": 31.211943 },
+{ "brand": "七尾", "storeName": "Ole深圳万象城店", "lng": 114.111165, "lat": 22.538681 },
+{ "brand": "鸭川", "storeName": "Ole深圳万象城店", "lng": 114.111165, "lat": 22.538681 },
+{ "brand": "池莉三轮", "storeName": "Ole无锡恒隆店", "lng": 120.297049, "lat": 31.574951 },
+{ "brand": "池莉三轮", "storeName": "Ole北京金融街店", "lng": 116.361513, "lat": 39.915576 },
+{ "brand": "东亚", "storeName": "Ole太原王府井店", "lng": 112.559201, "lat": 37.823705 },
+{ "brand": "东亚", "storeName": "Ole贵阳万象汇店", "lng": 106.621518, "lat": 26.620104 },
+{ "brand": "东亚", "storeName": "Ole大连恒隆店", "lng": 121.609269, "lat": 38.906954 },
+{ "brand": "东亚", "storeName": "Ole昆明恒隆店", "lng": 102.722626, "lat": 25.037103 },
+{ "brand": "东亚", "storeName": "Ole苏州中心店", "lng": 120.677112, "lat": 31.31621 },
+{ "brand": "东亚", "storeName": "Ole上海浦东嘉里店", "lng": 121.564894, "lat": 31.211943 },
+{ "brand": "东亚", "storeName": "Ole青岛万象城店", "lng": 120.378713, "lat": 36.065826 },
+{ "brand": "野村", "storeName": "Ole深圳万象城店", "lng": 114.111165, "lat": 22.538681 },
+{ "brand": "伊之助", "storeName": "Ole深圳万象城店", "lng": 114.111165, "lat": 22.538681 },
+{ "brand": "玛璐托", "storeName": "Ole深圳万象城店", "lng": 114.111165, "lat": 22.538681 },
+{ "brand": "东亚", "storeName": "Ole西安万象城店", "lng": 108.949596, "lat": 34.194802 },
+{ "brand": "东亚", "storeName": "Ole沈阳万象城店", "lng": 123.434541, "lat": 41.775771 },
+{ "brand": "丸胜高田", "storeName": "Ole深圳深圳湾店", "lng": 113.94469, "lat": 22.514867 },
+{ "brand": "东亚", "storeName": "Ole重庆万象城店", "lng": 106.518383, "lat": 29.5154 },
+{ "brand": "东亚", "storeName": "Ole北京金融街店", "lng": 116.361513, "lat": 39.915576 },
+{ "brand": "东亚", "storeName": "Ole太原万象城店", "lng": 112.528539, "lat": 37.807606 },
+{ "brand": "东亚", "storeName": "Ole成都IFS店", "lng": 104.081893, "lat": 30.655003 },
+{ "brand": "池莉三轮", "storeName": "Ole深圳深圳湾店", "lng": 113.94469, "lat": 22.514867 },
+{ "brand": "东亚", "storeName": "Ole深圳深圳湾店", "lng": 113.94469, "lat": 22.514867 },
+{ "brand": "七尾", "storeName": "Ole深圳深圳湾店", "lng": 113.94469, "lat": 22.514867 },
+{ "brand": "鸭川", "storeName": "Ole深圳深圳湾店", "lng": 113.94469, "lat": 22.514867 },
+{ "brand": "野村", "storeName": "Ole深圳深圳湾店", "lng": 113.94469, "lat": 22.514867 },
+{ "brand": "东亚", "storeName": "Ole济南万象城店", "lng": 117.099525, "lat": 36.658114 },
+{ "brand": "东亚", "storeName": "Ole厦门万象城店", "lng": 118.11101, "lat": 24.47225 },
+{ "brand": "东亚", "storeName": "Ole成都太古里店", "lng": 104.084664, "lat": 30.6536 },
+{ "brand": "东亚", "storeName": "Ole无锡恒隆店", "lng": 120.297049, "lat": 31.574951 },
+{ "brand": "伊之助", "storeName": "Ole深圳深圳湾店", "lng": 113.94469, "lat": 22.514867 },
+{ "brand": "丸胜高田", "storeName": "blt珠海环宇城店", "lng": 113.524757, "lat": 22.233977 },
+{ "brand": "池莉三轮", "storeName": "blt珠海环宇城店", "lng": 113.524757, "lat": 22.233977 },
+{ "brand": "东亚", "storeName": "blt沈阳万象汇店", "lng": 123.372651, "lat": 41.795172 },
+{ "brand": "东亚", "storeName": "blt珠海环宇城店", "lng": 113.524757, "lat": 22.233977 },
+{ "brand": "东亚", "storeName": "Ole无锡万象城店", "lng": 120.282757, "lat": 31.513266 },
+{ "brand": "七尾", "storeName": "blt珠海环宇城店", "lng": 113.524757, "lat": 22.233977 },
+{ "brand": "东亚", "storeName": "Ole上海港汇店", "lng": 121.43778, "lat": 31.194926 },
+{ "brand": "东亚", "storeName": "Ole上海静安嘉里店", "lng": 121.450059, "lat": 31.224105 },
+{ "brand": "东亚", "storeName": "Ole福州万象城店", "lng": 119.276846, "lat": 26.075202 },
+{ "brand": "鸭川", "storeName": "blt珠海环宇城店", "lng": 113.524757, "lat": 22.233977 },
+{ "brand": "野村", "storeName": "blt珠海环宇城店", "lng": 113.524757, "lat": 22.233977 },
+{ "brand": "伊之助", "storeName": "blt珠海环宇城店", "lng": 113.524757, "lat": 22.233977 },
+{ "brand": "玛璐托", "storeName": "blt珠海环宇城店", "lng": 113.524757, "lat": 22.233977 },
+{ "brand": "丸胜高田", "storeName": "Ole广州太古汇店", "lng": 113.332479, "lat": 23.134218 },
+{ "brand": "池莉三轮", "storeName": "Ole广州太古汇店", "lng": 113.332479, "lat": 23.134218 },
+{ "brand": "东亚", "storeName": "Ole成都万象城店", "lng": 104.116503, "lat": 30.649066 },
+{ "brand": "东亚", "storeName": "Ole广州太古汇店", "lng": 113.332479, "lat": 23.134218 },
+{ "brand": "七尾", "storeName": "Ole广州太古汇店", "lng": 113.332479, "lat": 23.134218 },
+{ "brand": "东亚", "storeName": "Ole上海陆家嘴店", "lng": 121.515548, "lat": 31.231384 },
+{ "brand": "东亚", "storeName": "Ole北京大悦城店", "lng": 116.517886, "lat": 39.924529 },
+{ "brand": "东亚", "storeName": "Ole西安中大国际店", "lng": 108.897341, "lat": 34.221874 },
+{ "brand": "东亚", "storeName": "Ole温州印象城店", "lng": 120.701866, "lat": 27.985783 },
+{ "brand": "鸭川", "storeName": "Ole广州太古汇店", "lng": 113.332479, "lat": 23.134218 },
+{ "brand": "东亚", "storeName": "Ole杭州嘉里店", "lng": 120.162179, "lat": 30.260722 },
+{ "brand": "东亚", "storeName": "Ole宁波和义大道店", "lng": 121.555726, "lat": 29.87332 },
+{ "brand": "东亚", "storeName": "Ole兰州万象城店", "lng": 103.845034, "lat": 36.053615 },
+{ "brand": "东亚", "storeName": "Ole杭州万象城店", "lng": 120.213715, "lat": 30.248908 },
+{ "brand": "东亚", "storeName": "Ole厦门宝龙店", "lng": 118.173344, "lat": 24.485234 },
+{ "brand": "东亚", "storeName": "Ole贵阳逸天城店", "lng": 106.722673, "lat": 26.562866 },
+{ "brand": "野村", "storeName": "Ole广州太古汇店", "lng": 113.332479, "lat": 23.134218 },
+{ "brand": "伊之助", "storeName": "Ole广州太古汇店", "lng": 113.332479, "lat": 23.134218 },
+{ "brand": "玛璐托", "storeName": "Ole广州太古汇店", "lng": 113.332479, "lat": 23.134218 },
+{ "brand": "七尾", "storeName": "blt广州信达金茂店", "lng": 113.31892, "lat": 23.170443 },
+{ "brand": "鸭川", "storeName": "blt广州信达金茂店", "lng": 113.31892, "lat": 23.170443 },
+{ "brand": "东亚", "storeName": "Ole合肥万象城店", "lng": 117.229984, "lat": 31.798915 },
+{ "brand": "野村", "storeName": "blt广州信达金茂店", "lng": 113.31892, "lat": 23.170443 },
+{ "brand": "东亚", "storeName": "Ole呼和浩特万象城店", "lng": 111.674675, "lat": 40.804766 },
+{ "brand": "东亚", "storeName": "Ole济南恒隆店", "lng": 117.024037, "lat": 36.664548 },
+{ "brand": "东亚", "storeName": "Ole贵阳万象城店", "lng": 106.62162, "lat": 26.620677 },
+{ "brand": "伊之助", "storeName": "blt广州信达金茂店", "lng": 113.31892, "lat": 23.170443 },
+{ "brand": "东亚", "storeName": "Ole石家庄万象城店", "lng": 114.478203, "lat": 38.042312 },
+{ "brand": "七尾", "storeName": "Ole呼和浩特万象城店", "lng": 111.674675, "lat": 40.804766 },
+{ "brand": "丸胜高田", "storeName": "Ole广州天汇广场店", "lng": 113.3321, "lat": 23.115501 },
+{ "brand": "七尾", "storeName": "Ole厦门万象城店", "lng": 118.11101, "lat": 24.47225 },
+{ "brand": "七尾", "storeName": "Ole上海港汇店", "lng": 121.43778, "lat": 31.194926 },
+{ "brand": "七尾", "storeName": "Ole济南万象城店", "lng": 117.099525, "lat": 36.658114 },
+{ "brand": "七尾", "storeName": "blt沈阳万象汇店", "lng": 123.372651, "lat": 41.795172 },
+{ "brand": "七尾", "storeName": "Ole成都IFS店", "lng": 104.081893, "lat": 30.655003 },
+{ "brand": "七尾", "storeName": "Ole大连柏威年店", "lng": 121.628771, "lat": 38.918114 },
+{ "brand": "池莉三轮", "storeName": "Ole广州天汇广场店", "lng": 113.3321, "lat": 23.115501 },
+{ "brand": "七尾", "storeName": "Ole上海陆家嘴店", "lng": 121.515548, "lat": 31.231384 },
+{ "brand": "七尾", "storeName": "Ole昆明万象城店", "lng": 102.73322, "lat": 25.028942 },
+{ "brand": "七尾", "storeName": "Ole石家庄万象城店", "lng": 114.478203, "lat": 38.042312 },
+{ "brand": "七尾", "storeName": "blt苏州湾店", "lng": 120.616718, "lat": 31.135734 },
+{ "brand": "七尾", "storeName": "Ole苏州中心店", "lng": 120.677112, "lat": 31.31621 },
+{ "brand": "七尾", "storeName": "blt重庆印象城店", "lng": 106.518492, "lat": 29.550395 },
+{ "brand": "七尾", "storeName": "Ole西安国贸春天店", "lng": 108.945623, "lat": 34.246669 },
+{ "brand": "东亚", "storeName": "Ole广州天汇广场店", "lng": 113.3321, "lat": 23.115501 },
+{ "brand": "七尾", "storeName": "Ole广州天汇广场店", "lng": 113.3321, "lat": 23.115501 },
+{ "brand": "鸭川", "storeName": "Ole广州天汇广场店", "lng": 113.3321, "lat": 23.115501 },
+{ "brand": "野村", "storeName": "Ole广州天汇广场店", "lng": 113.3321, "lat": 23.115501 },
+{ "brand": "伊之助", "storeName": "Ole广州天汇广场店", "lng": 113.3321, "lat": 23.115501 },
+{ "brand": "玛璐托", "storeName": "Ole广州天汇广场店", "lng": 113.3321, "lat": 23.115501 },
+{ "brand": "七尾", "storeName": "Ole西安中大国际店", "lng": 108.897341, "lat": 34.221874 },
+{ "brand": "七尾", "storeName": "Ole杭州嘉里店", "lng": 120.162179, "lat": 30.260722 },
+{ "brand": "丸胜高田", "storeName": "Ole海口万象城店", "lng": 110.315015, "lat": 20.027521 },
+{ "brand": "七尾", "storeName": "Ole贵阳万象城店", "lng": 106.62162, "lat": 26.620677 },
+{ "brand": "七尾", "storeName": "Ole无锡恒隆店", "lng": 120.297049, "lat": 31.574951 },
+{ "brand": "七尾", "storeName": "Ole青岛万象城店", "lng": 120.378713, "lat": 36.065826 },
+{ "brand": "七尾", "storeName": "Ole大连恒隆店", "lng": 121.609269, "lat": 38.906954 },
+{ "brand": "七尾", "storeName": "Ole太原王府井店", "lng": 112.559201, "lat": 37.823705 },
+{ "brand": "池莉三轮", "storeName": "Ole海口万象城店", "lng": 110.315015, "lat": 20.027521 },
+{ "brand": "东亚", "storeName": "Ole海口万象城店", "lng": 110.315015, "lat": 20.027521 },
+{ "brand": "七尾", "storeName": "Ole上海万象城店", "lng": 121.39302, "lat": 31.120899 },
+{ "brand": "七尾", "storeName": "Ole海口万象城店", "lng": 110.315015, "lat": 20.027521 },
+{ "brand": "七尾", "storeName": "Ole沈阳恒隆店", "lng": 123.434897, "lat": 41.802253 },
+{ "brand": "七尾", "storeName": "Ole上海静安嘉里店", "lng": 121.450059, "lat": 31.224105 },
+{ "brand": "鸭川", "storeName": "Ole海口万象城店", "lng": 110.315015, "lat": 20.027521 },
+{ "brand": "七尾", "storeName": "Ole重庆国金中心店", "lng": 106.573381, "lat": 29.575712 },
+{ "brand": "七尾", "storeName": "Ole天津万象城店", "lng": 117.212016, "lat": 39.089993 },
+{ "brand": "野村", "storeName": "Ole海口万象城店", "lng": 110.315015, "lat": 20.027521 },
+{ "brand": "伊之助", "storeName": "Ole海口万象城店", "lng": 110.315015, "lat": 20.027521 },
+{ "brand": "玛璐托", "storeName": "Ole海口万象城店", "lng": 110.315015, "lat": 20.027521 },
+{ "brand": "七尾", "storeName": "Ole重庆解放碑店", "lng": 106.577185, "lat": 29.557734 },
+{ "brand": "七尾", "storeName": "blt合肥高新银泰店", "lng": 117.133261, "lat": 31.832305 },
+{ "brand": "七尾", "storeName": "Ole成都万象城店", "lng": 104.116503, "lat": 30.649066 },
+{ "brand": "七尾", "storeName": "Ole郑州郑东万象城店", "lng": 113.764208, "lat": 34.765546 },
+{ "brand": "七尾", "storeName": "Ole太原万象城店", "lng": 112.528539, "lat": 37.807606 },
+{ "brand": "丸胜高田", "storeName": "Ole武汉武昌万象城店", "lng": 114.327081, "lat": 30.584467 },
+{ "brand": "东亚", "storeName": "Ole武汉武昌万象城店", "lng": 114.327081, "lat": 30.584467 },
+{ "brand": "七尾", "storeName": "Ole福州万象城店", "lng": 119.276846, "lat": 26.075202 },
+{ "brand": "七尾", "storeName": "Ole武汉武昌万象城店", "lng": 114.327081, "lat": 30.584467 },
+{ "brand": "七尾", "storeName": "Ole兰州万象城店", "lng": 103.845034, "lat": 36.053615 },
+{ "brand": "七尾", "storeName": "Ole济南恒隆店", "lng": 117.024037, "lat": 36.664548 },
+{ "brand": "七尾", "storeName": "Ole重庆观音桥店", "lng": 106.531001, "lat": 29.578493 },
+{ "brand": "鸭川", "storeName": "Ole武汉武昌万象城店", "lng": 114.327081, "lat": 30.584467 },
+{ "brand": "七尾", "storeName": "Ole合肥万象城店", "lng": 117.229984, "lat": 31.798915 },
+{ "brand": "七尾", "storeName": "blt宁波万象城店", "lng": 121.553484, "lat": 29.898322 },
+{ "brand": "七尾", "storeName": "blt苏州春风里店", "lng": 120.616718, "lat": 31.135734 },
+{ "brand": "七尾", "storeName": "Ole温州万象城店", "lng": 120.685486, "lat": 27.95405 },
+{ "brand": "七尾", "storeName": "Ole贵阳万象汇店", "lng": 106.621518, "lat": 26.620104 },
+{ "brand": "野村", "storeName": "Ole武汉武昌万象城店", "lng": 114.327081, "lat": 30.584467 },
+{ "brand": "七尾", "storeName": "blt大连华南万象汇店", "lng": 121.585232, "lat": 38.99092 },
+{ "brand": "伊之助", "storeName": "Ole武汉武昌万象城店", "lng": 114.327081, "lat": 30.584467 },
+{ "brand": "七尾", "storeName": "Ole上海浦东嘉里店", "lng": 121.564894, "lat": 31.211943 },
+{ "brand": "七尾", "storeName": "Ole南京金陵中环店", "lng": 118.782177, "lat": 32.040937 },
+{ "brand": "玛璐托", "storeName": "Ole武汉武昌万象城店", "lng": 114.327081, "lat": 30.584467 },
+{ "brand": "丸胜高田", "storeName": "Ole南昌万象城店", "lng": 115.846446, "lat": 28.654282 },
+{ "brand": "七尾", "storeName": "blt天津嘉里汇店", "lng": 117.217183, "lat": 39.127682 },
+{ "brand": "七尾", "storeName": "Ole贵阳逸天城店", "lng": 106.722673, "lat": 26.562866 },
+{ "brand": "七尾", "storeName": "Ole长沙万象城店", "lng": 112.950185, "lat": 28.218534 },
+{ "brand": "七尾", "storeName": "blt昆明同德广场店", "lng": 102.723587, "lat": 25.068258 },
+{ "brand": "七尾", "storeName": "blt天津印象城店", "lng": 117.191803, "lat": 39.131387 },
+{ "brand": "东亚", "storeName": "Ole南昌万象城店", "lng": 115.846446, "lat": 28.654282 },
+{ "brand": "七尾", "storeName": "Ole南昌万象城店", "lng": 115.846446, "lat": 28.654282 },
+{ "brand": "七尾", "storeName": "blt北京凤凰广场店", "lng": 116.457439, "lat": 39.963253 },
+{ "brand": "七尾", "storeName": "Ole北京大融城店", "lng": 116.311645, "lat": 39.981902 },
+{ "brand": "七尾", "storeName": "Ole杭州万象城店", "lng": 120.213715, "lat": 30.248908 },
+{ "brand": "七尾", "storeName": "Ole郑州万象城店", "lng": 113.662952, "lat": 34.754429 },
+{ "brand": "七尾", "storeName": "Ole温州印象城店", "lng": 120.701866, "lat": 27.985783 },
+{ "brand": "鸭川", "storeName": "Ole南昌万象城店", "lng": 115.846446, "lat": 28.654282 },
+{ "brand": "七尾", "storeName": "Ole厦门宝龙店", "lng": 118.173344, "lat": 24.485234 },
+{ "brand": "七尾", "storeName": "Ole北京国贸三期店", "lng": 116.45879, "lat": 39.912293 },
+{ "brand": "七尾", "storeName": "Ole昆明恒隆店", "lng": 102.722626, "lat": 25.037103 },
+{ "brand": "七尾", "storeName": "Ole西安万象城店", "lng": 108.949596, "lat": 34.194802 },
+{ "brand": "七尾", "storeName": "Ole成都太古里店", "lng": 104.084664, "lat": 30.6536 },
+{ "brand": "七尾", "storeName": "Ole北京金融街店", "lng": 116.361513, "lat": 39.915576 },
+{ "brand": "七尾", "storeName": "Ole无锡万象城店", "lng": 120.282757, "lat": 31.513266 },
+{ "brand": "野村", "storeName": "Ole南昌万象城店", "lng": 115.846446, "lat": 28.654282 },
+{ "brand": "伊之助", "storeName": "Ole南昌万象城店", "lng": 115.846446, "lat": 28.654282 },
+{ "brand": "七尾", "storeName": "Ole重庆万象城店", "lng": 106.518383, "lat": 29.5154 },
+{ "brand": "七尾", "storeName": "Ole长春万象城店", "lng": 125.327782, "lat": 43.879425 },
+{ "brand": "玛璐托", "storeName": "Ole南昌万象城店", "lng": 115.846446, "lat": 28.654282 },
+{ "brand": "七尾", "storeName": "Ole上海大丸百货店", "lng": 121.485967, "lat": 31.23831 },
+{ "brand": "山本三轮", "storeName": "Ole南宁万象城店", "lng": 108.392386, "lat": 22.810977 },
+{ "brand": "七尾", "storeName": "Ole上海南丰城店", "lng": 121.407728, "lat": 31.207237 },
+{ "brand": "七尾", "storeName": "Ole天津恒隆店", "lng": 117.20066, "lat": 39.12739 },
+{ "brand": "七尾", "storeName": "blt厦门SM广场店", "lng": 118.124804, "lat": 24.501273 },
+{ "brand": "丸胜高田", "storeName": "Ole南宁万象城店", "lng": 108.392386, "lat": 22.810977 },
+{ "brand": "七尾", "storeName": "Ole宁波和义大道店", "lng": 121.555726, "lat": 29.87332 },
+{ "brand": "池莉三轮", "storeName": "Ole南宁万象城店", "lng": 108.392386, "lat": 22.810977 },
+{ "brand": "七尾", "storeName": "Ole上海环球港店", "lng": 121.413525, "lat": 31.235125 },
+{ "brand": "七尾", "storeName": "Ole北京大悦城店", "lng": 116.517886, "lat": 39.924529 },
+{ "brand": "东亚", "storeName": "Ole南宁万象城店", "lng": 108.392386, "lat": 22.810977 },
+{ "brand": "七尾", "storeName": "Ole沈阳万象城店", "lng": 123.434541, "lat": 41.775771 },
+{ "brand": "鸭川", "storeName": "Ole呼和浩特万象城店", "lng": 111.674675, "lat": 40.804766 },
+{ "brand": "七尾", "storeName": "Ole南宁万象城店", "lng": 108.392386, "lat": 22.810977 },
+{ "brand": "鸭川", "storeName": "Ole厦门万象城店", "lng": 118.11101, "lat": 24.47225 },
+{ "brand": "鸭川", "storeName": "Ole上海港汇店", "lng": 121.43778, "lat": 31.194926 },
+{ "brand": "鸭川", "storeName": "Ole重庆万象城店", "lng": 106.518383, "lat": 29.5154 },
+{ "brand": "鸭川", "storeName": "Ole济南万象城店", "lng": 117.099525, "lat": 36.658114 },
+{ "brand": "鸭川", "storeName": "blt沈阳万象汇店", "lng": 123.372651, "lat": 41.795172 },
+{ "brand": "鸭川", "storeName": "Ole南宁万象城店", "lng": 108.392386, "lat": 22.810977 },
+{ "brand": "鸭川", "storeName": "Ole成都IFS店", "lng": 104.081893, "lat": 30.655003 },
+{ "brand": "鸭川", "storeName": "Ole大连柏威年店", "lng": 121.628771, "lat": 38.918114 },
+{ "brand": "鸭川", "storeName": "Ole郑州郑东万象城店", "lng": 113.764208, "lat": 34.765546 },
+{ "brand": "野村", "storeName": "Ole南宁万象城店", "lng": 108.392386, "lat": 22.810977 },
+{ "brand": "鸭川", "storeName": "Ole上海陆家嘴店", "lng": 121.515548, "lat": 31.231384 },
+{ "brand": "鸭川", "storeName": "Ole昆明万象城店", "lng": 102.73322, "lat": 25.028942 },
+{ "brand": "鸭川", "storeName": "Ole西安中大国际店", "lng": 108.897341, "lat": 34.221874 },
+{ "brand": "伊之助", "storeName": "Ole南宁万象城店", "lng": 108.392386, "lat": 22.810977 },
+{ "brand": "鸭川", "storeName": "Ole石家庄万象城店", "lng": 114.478203, "lat": 38.042312 },
+{ "brand": "鸭川", "storeName": "blt苏州湾店", "lng": 120.616718, "lat": 31.135734 },
+{ "brand": "鸭川", "storeName": "Ole苏州中心店", "lng": 120.677112, "lat": 31.31621 },
+{ "brand": "鸭川", "storeName": "blt重庆印象城店", "lng": 106.518492, "lat": 29.550395 },
+{ "brand": "鸭川", "storeName": "Ole长春万象城店", "lng": 125.327782, "lat": 43.879425 },
+{ "brand": "鸭川", "storeName": "Ole西安国贸春天店", "lng": 108.945623, "lat": 34.246669 },
+{ "brand": "玛璐托", "storeName": "Ole南宁万象城店", "lng": 108.392386, "lat": 22.810977 },
+{ "brand": "丸胜高田", "storeName": "Ole深圳海雅缤纷店", "lng": 113.906075, "lat": 22.560525 },
+{ "brand": "东亚", "storeName": "Ole深圳海雅缤纷店", "lng": 113.906075, "lat": 22.560525 },
+{ "brand": "鸭川", "storeName": "Ole昆明恒隆店", "lng": 102.722626, "lat": 25.037103 },
+{ "brand": "七尾", "storeName": "Ole深圳海雅缤纷店", "lng": 113.906075, "lat": 22.560525 },
+{ "brand": "鸭川", "storeName": "Ole深圳海雅缤纷店", "lng": 113.906075, "lat": 22.560525 },
+{ "brand": "野村", "storeName": "Ole深圳海雅缤纷店", "lng": 113.906075, "lat": 22.560525 },
+{ "brand": "伊之助", "storeName": "Ole深圳海雅缤纷店", "lng": 113.906075, "lat": 22.560525 },
+{ "brand": "鸭川", "storeName": "Ole杭州嘉里店", "lng": 120.162179, "lat": 30.260722 },
+{ "brand": "玛璐托", "storeName": "Ole深圳海雅缤纷店", "lng": 113.906075, "lat": 22.560525 },
+{ "brand": "丸胜高田", "storeName": "Ole深圳壹方城店", "lng": 113.887203, "lat": 22.552722 },
+{ "brand": "鸭川", "storeName": "Ole贵阳万象城店", "lng": 106.62162, "lat": 26.620677 },
+{ "brand": "鸭川", "storeName": "Ole无锡恒隆店", "lng": 120.297049, "lat": 31.574951 },
+{ "brand": "鸭川", "storeName": "Ole青岛万象城店", "lng": 120.378713, "lat": 36.065826 },
+{ "brand": "鸭川", "storeName": "Ole大连恒隆店", "lng": 121.609269, "lat": 38.906954 },
+{ "brand": "鸭川", "storeName": "Ole太原王府井店", "lng": 112.559201, "lat": 37.823705 },
+{ "brand": "池莉三轮", "storeName": "Ole深圳壹方城店", "lng": 113.887203, "lat": 22.552722 },
+{ "brand": "鸭川", "storeName": "Ole合肥万象城店", "lng": 117.229984, "lat": 31.798915 },
+{ "brand": "东亚", "storeName": "Ole深圳壹方城店", "lng": 113.887203, "lat": 22.552722 },
+{ "brand": "七尾", "storeName": "Ole深圳壹方城店", "lng": 113.887203, "lat": 22.552722 },
+{ "brand": "鸭川", "storeName": "Ole上海万象城店", "lng": 121.39302, "lat": 31.120899 },
+{ "brand": "鸭川", "storeName": "Ole深圳壹方城店", "lng": 113.887203, "lat": 22.552722 },
+{ "brand": "鸭川", "storeName": "Ole沈阳恒隆店", "lng": 123.434897, "lat": 41.802253 },
+{ "brand": "鸭川", "storeName": "Ole上海静安嘉里店", "lng": 121.450059, "lat": 31.224105 },
+{ "brand": "野村", "storeName": "Ole深圳壹方城店", "lng": 113.887203, "lat": 22.552722 },
+{ "brand": "鸭川", "storeName": "Ole重庆国金中心店", "lng": 106.573381, "lat": 29.575712 },
+{ "brand": "鸭川", "storeName": "Ole天津万象城店", "lng": 117.212016, "lat": 39.089993 },
+{ "brand": "伊之助", "storeName": "Ole深圳壹方城店", "lng": 113.887203, "lat": 22.552722 },
+{ "brand": "玛璐托", "storeName": "Ole深圳壹方城店", "lng": 113.887203, "lat": 22.552722 },
+{ "brand": "七尾", "storeName": "blt深圳滨河京基店", "lng": 114.106502, "lat": 22.544236 },
+{ "brand": "鸭川", "storeName": "blt深圳滨河京基店", "lng": 114.106502, "lat": 22.544236 },
+{ "brand": "鸭川", "storeName": "Ole太原万象城店", "lng": 112.528539, "lat": 37.807606 },
+{ "brand": "鸭川", "storeName": "Ole福州万象城店", "lng": 119.276846, "lat": 26.075202 },
+{ "brand": "野村", "storeName": "blt深圳滨河京基店", "lng": 114.106502, "lat": 22.544236 },
+{ "brand": "鸭川", "storeName": "Ole重庆解放碑店", "lng": 106.577185, "lat": 29.557734 },
+{ "brand": "鸭川", "storeName": "blt合肥高新银泰店", "lng": 117.133261, "lat": 31.832305 },
+{ "brand": "鸭川", "storeName": "Ole成都万象城店", "lng": 104.116503, "lat": 30.649066 },
+{ "brand": "鸭川", "storeName": "Ole北京金融街店", "lng": 116.361513, "lat": 39.915576 },
+{ "brand": "伊之助", "storeName": "blt深圳滨河京基店", "lng": 114.106502, "lat": 22.544236 },
+{ "brand": "鸭川", "storeName": "Ole兰州万象城店", "lng": 103.845034, "lat": 36.053615 },
+{ "brand": "丸胜高田", "storeName": "Ole深圳深业上城店", "lng": 114.070306, "lat": 22.557091 },
+{ "brand": "鸭川", "storeName": "Ole济南恒隆店", "lng": 117.024037, "lat": 36.664548 },
+{ "brand": "池莉三轮", "storeName": "Ole深圳深业上城店", "lng": 114.070306, "lat": 22.557091 },
+{ "brand": "鸭川", "storeName": "Ole重庆观音桥店", "lng": 106.531001, "lat": 29.578493 },
+{ "brand": "鸭川", "storeName": "Ole杭州万象城店", "lng": 120.213715, "lat": 30.248908 },
+{ "brand": "鸭川", "storeName": "blt宁波万象城店", "lng": 121.553484, "lat": 29.898322 },
+{ "brand": "鸭川", "storeName": "blt苏州春风里店", "lng": 120.616718, "lat": 31.135734 },
+{ "brand": "鸭川", "storeName": "Ole上海浦东嘉里店", "lng": 121.564894, "lat": 31.211943 },
+{ "brand": "鸭川", "storeName": "Ole温州万象城店", "lng": 120.685486, "lat": 27.95405 },
+{ "brand": "鸭川", "storeName": "Ole贵阳万象汇店", "lng": 106.621518, "lat": 26.620104 },
+{ "brand": "东亚", "storeName": "Ole深圳深业上城店", "lng": 114.070306, "lat": 22.557091 },
+{ "brand": "鸭川", "storeName": "Ole无锡万象城店", "lng": 120.282757, "lat": 31.513266 },
+{ "brand": "鸭川", "storeName": "blt大连华南万象汇店", "lng": 121.585232, "lat": 38.99092 },
+{ "brand": "七尾", "storeName": "Ole深圳深业上城店", "lng": 114.070306, "lat": 22.557091 },
+{ "brand": "鸭川", "storeName": "Ole南京金陵中环店", "lng": 118.782177, "lat": 32.040937 },
+{ "brand": "鸭川", "storeName": "Ole深圳深业上城店", "lng": 114.070306, "lat": 22.557091 },
+{ "brand": "野村", "storeName": "Ole深圳深业上城店", "lng": 114.070306, "lat": 22.557091 },
+{ "brand": "鸭川", "storeName": "blt天津嘉里汇店", "lng": 117.217183, "lat": 39.127682 },
+{ "brand": "鸭川", "storeName": "Ole贵阳逸天城店", "lng": 106.722673, "lat": 26.562866 },
+{ "brand": "鸭川", "storeName": "Ole长沙万象城店", "lng": 112.950185, "lat": 28.218534 },
+{ "brand": "鸭川", "storeName": "blt昆明同德广场店", "lng": 102.723587, "lat": 25.068258 },
+{ "brand": "鸭川", "storeName": "blt天津印象城店", "lng": 117.191803, "lat": 39.131387 },
+{ "brand": "伊之助", "storeName": "Ole深圳深业上城店", "lng": 114.070306, "lat": 22.557091 },
+{ "brand": "玛璐托", "storeName": "Ole深圳深业上城店", "lng": 114.070306, "lat": 22.557091 },
+{ "brand": "鸭川", "storeName": "Ole沈阳万象城店", "lng": 123.434541, "lat": 41.775771 },
+{ "brand": "鸭川", "storeName": "blt北京凤凰广场店", "lng": 116.457439, "lat": 39.963253 },
+{ "brand": "鸭川", "storeName": "Ole北京大融城店", "lng": 116.311645, "lat": 39.981902 },
+{ "brand": "鸭川", "storeName": "Ole宁波和义大道店", "lng": 121.555726, "lat": 29.87332 },
+{ "brand": "鸭川", "storeName": "Ole郑州万象城店", "lng": 113.662952, "lat": 34.754429 },
+{ "brand": "鸭川", "storeName": "Ole温州印象城店", "lng": 120.701866, "lat": 27.985783 },
+{ "brand": "野村", "storeName": "blt深圳东海店", "lng": 114.019138, "lat": 22.535785 },
+{ "brand": "鸭川", "storeName": "Ole厦门宝龙店", "lng": 118.173344, "lat": 24.485234 },
+{ "brand": "鸭川", "storeName": "Ole北京国贸三期店", "lng": 116.45879, "lat": 39.912293 },
+{ "brand": "鸭川", "storeName": "Ole西安万象城店", "lng": 108.949596, "lat": 34.194802 },
+{ "brand": "鸭川", "storeName": "Ole成都太古里店", "lng": 104.084664, "lat": 30.6536 },
+{ "brand": "伊之助", "storeName": "blt深圳东海店", "lng": 114.019138, "lat": 22.535785 },
+{ "brand": "玛璐托", "storeName": "blt深圳东海店", "lng": 114.019138, "lat": 22.535785 },
+{ "brand": "鸭川", "storeName": "Ole上海大丸百货店", "lng": 121.485967, "lat": 31.23831 },
+{ "brand": "鸭川", "storeName": "Ole上海南丰城店", "lng": 121.407728, "lat": 31.207237 },
+{ "brand": "鸭川", "storeName": "Ole天津恒隆店", "lng": 117.20066, "lat": 39.12739 },
+{ "brand": "鸭川", "storeName": "blt厦门SM广场店", "lng": 118.124804, "lat": 24.501273 },
+{ "brand": "鸭川", "storeName": "Ole上海环球港店", "lng": 121.413525, "lat": 31.235125 },
+{ "brand": "鸭川", "storeName": "Ole北京大悦城店", "lng": 116.517886, "lat": 39.924529 },
+{ "brand": "野村", "storeName": "Ole郑州万象城店", "lng": 113.662952, "lat": 34.754429 },
+{ "brand": "野村", "storeName": "Ole呼和浩特万象城店", "lng": 111.674675, "lat": 40.804766 },
+{ "brand": "七尾", "storeName": "Ole深圳平安金融中心店", "lng": 114.055976, "lat": 22.534294 },
+{ "brand": "野村", "storeName": "Ole厦门万象城店", "lng": 118.11101, "lat": 24.47225 },
+{ "brand": "野村", "storeName": "Ole上海港汇店", "lng": 121.43778, "lat": 31.194926 },
+{ "brand": "野村", "storeName": "Ole济南万象城店", "lng": 117.099525, "lat": 36.658114 },
+{ "brand": "野村", "storeName": "Ole温州印象城店", "lng": 120.701866, "lat": 27.985783 },
+{ "brand": "野村", "storeName": "Ole苏州中心店", "lng": 120.677112, "lat": 31.31621 },
+{ "brand": "鸭川", "storeName": "Ole深圳平安金融中心店", "lng": 114.055976, "lat": 22.534294 },
+{ "brand": "野村", "storeName": "Ole成都万象城店", "lng": 104.116503, "lat": 30.649066 },
+{ "brand": "野村", "storeName": "Ole上海大丸百货店", "lng": 121.485967, "lat": 31.23831 },
+{ "brand": "野村", "storeName": "Ole北京大融城店", "lng": 116.311645, "lat": 39.981902 },
+{ "brand": "野村", "storeName": "Ole杭州万象城店", "lng": 120.213715, "lat": 30.248908 },
+{ "brand": "野村", "storeName": "blt沈阳万象汇店", "lng": 123.372651, "lat": 41.795172 },
+{ "brand": "野村", "storeName": "Ole成都IFS店", "lng": 104.081893, "lat": 30.655003 },
+{ "brand": "野村", "storeName": "Ole大连柏威年店", "lng": 121.628771, "lat": 38.918114 },
+{ "brand": "野村", "storeName": "Ole深圳平安金融中心店", "lng": 114.055976, "lat": 22.534294 },
+{ "brand": "伊之助", "storeName": "Ole深圳平安金融中心店", "lng": 114.055976, "lat": 22.534294 },
+{ "brand": "玛璐托", "storeName": "Ole深圳平安金融中心店", "lng": 114.055976, "lat": 22.534294 },
+{ "brand": "野村", "storeName": "Ole上海陆家嘴店", "lng": 121.515548, "lat": 31.231384 },
+{ "brand": "野村", "storeName": "Ole昆明万象城店", "lng": 102.73322, "lat": 25.028942 },
+{ "brand": "野村", "storeName": "Ole重庆国金中心店", "lng": 106.573381, "lat": 29.575712 },
+{ "brand": "野村", "storeName": "Ole济南恒隆店", "lng": 117.024037, "lat": 36.664548 },
+{ "brand": "野村", "storeName": "Ole石家庄万象城店", "lng": 114.478203, "lat": 38.042312 },
+{ "brand": "野村", "storeName": "blt苏州湾店", "lng": 120.616718, "lat": 31.135734 },
+{ "brand": "丸胜高田", "storeName": "BLT深圳龙岗万科店", "lng": 114.243803, "lat": 22.714388 },
+{ "brand": "野村", "storeName": "blt重庆印象城店", "lng": 106.518492, "lat": 29.550395 },
+{ "brand": "东亚", "storeName": "BLT深圳龙岗万科店", "lng": 114.243803, "lat": 22.714388 },
+{ "brand": "野村", "storeName": "Ole西安国贸春天店", "lng": 108.945623, "lat": 34.246669 },
+{ "brand": "七尾", "storeName": "BLT深圳龙岗万科店", "lng": 114.243803, "lat": 22.714388 },
+{ "brand": "鸭川", "storeName": "BLT深圳龙岗万科店", "lng": 114.243803, "lat": 22.714388 },
+{ "brand": "野村", "storeName": "Ole重庆解放碑店", "lng": 106.577185, "lat": 29.557734 },
+{ "brand": "野村", "storeName": "BLT深圳龙岗万科店", "lng": 114.243803, "lat": 22.714388 },
+{ "brand": "伊之助", "storeName": "BLT深圳龙岗万科店", "lng": 114.243803, "lat": 22.714388 },
+{ "brand": "玛璐托", "storeName": "BLT深圳龙岗万科店", "lng": 114.243803, "lat": 22.714388 },
+{ "brand": "丸胜高田", "storeName": "blt深圳京基店", "lng": 114.106502, "lat": 22.544236 },
+{ "brand": "野村", "storeName": "Ole重庆万象城店", "lng": 106.518383, "lat": 29.5154 },
+{ "brand": "东亚", "storeName": "blt深圳京基店", "lng": 114.106502, "lat": 22.544236 },
+{ "brand": "野村", "storeName": "Ole西安中大国际店", "lng": 108.897341, "lat": 34.221874 },
+{ "brand": "野村", "storeName": "Ole杭州嘉里店", "lng": 120.162179, "lat": 30.260722 },
+{ "brand": "七尾", "storeName": "blt深圳京基店", "lng": 114.106502, "lat": 22.544236 },
+{ "brand": "野村", "storeName": "Ole贵阳万象城店", "lng": 106.62162, "lat": 26.620677 },
+{ "brand": "野村", "storeName": "Ole无锡恒隆店", "lng": 120.297049, "lat": 31.574951 },
+{ "brand": "野村", "storeName": "Ole南京金陵中环店", "lng": 118.782177, "lat": 32.040937 },
+{ "brand": "鸭川", "storeName": "blt深圳京基店", "lng": 114.106502, "lat": 22.544236 },
+{ "brand": "野村", "storeName": "Ole青岛万象城店", "lng": 120.378713, "lat": 36.065826 },
+{ "brand": "野村", "storeName": "blt深圳京基店", "lng": 114.106502, "lat": 22.544236 },
+{ "brand": "野村", "storeName": "Ole大连恒隆店", "lng": 121.609269, "lat": 38.906954 },
+{ "brand": "野村", "storeName": "Ole太原王府井店", "lng": 112.559201, "lat": 37.823705 },
+{ "brand": "伊之助", "storeName": "blt深圳京基店", "lng": 114.106502, "lat": 22.544236 },
+{ "brand": "玛璐托", "storeName": "blt深圳京基店", "lng": 114.106502, "lat": 22.544236 },
+{ "brand": "野村", "storeName": "blt天津嘉里汇店", "lng": 117.217183, "lat": 39.127682 },
+{ "brand": "丸胜高田", "storeName": "Ole深圳欢乐海岸店", "lng": 113.990425, "lat": 22.525625 },
+{ "brand": "东亚", "storeName": "Ole深圳欢乐海岸店", "lng": 113.990425, "lat": 22.525625 },
+{ "brand": "七尾", "storeName": "Ole深圳欢乐海岸店", "lng": 113.990425, "lat": 22.525625 },
+{ "brand": "野村", "storeName": "Ole上海万象城店", "lng": 121.39302, "lat": 31.120899 },
+{ "brand": "野村", "storeName": "blt大连华南万象汇店", "lng": 121.585232, "lat": 38.99092 },
+{ "brand": "鸭川", "storeName": "Ole深圳欢乐海岸店", "lng": 113.990425, "lat": 22.525625 },
+{ "brand": "野村", "storeName": "Ole沈阳恒隆店", "lng": 123.434897, "lat": 41.802253 },
+{ "brand": "野村", "storeName": "Ole上海静安嘉里店", "lng": 121.450059, "lat": 31.224105 },
+{ "brand": "野村", "storeName": "Ole北京国贸三期店", "lng": 116.45879, "lat": 39.912293 },
+{ "brand": "野村", "storeName": "blt天津印象城店", "lng": 117.191803, "lat": 39.131387 },
+{ "brand": "野村", "storeName": "Ole深圳欢乐海岸店", "lng": 113.990425, "lat": 22.525625 },
+{ "brand": "伊之助", "storeName": "Ole深圳欢乐海岸店", "lng": 113.990425, "lat": 22.525625 },
+{ "brand": "野村", "storeName": "Ole福州万象城店", "lng": 119.276846, "lat": 26.075202 },
+{ "brand": "野村", "storeName": "blt宁波万象城店", "lng": 121.553484, "lat": 29.898322 },
+{ "brand": "野村", "storeName": "Ole重庆观音桥店", "lng": 106.531001, "lat": 29.578493 },
+{ "brand": "野村", "storeName": "blt合肥高新银泰店", "lng": 117.133261, "lat": 31.832305 },
+{ "brand": "野村", "storeName": "Ole天津万象城店", "lng": 117.212016, "lat": 39.089993 },
+{ "brand": "野村", "storeName": "Ole沈阳万象城店", "lng": 123.434541, "lat": 41.775771 },
+{ "brand": "丸胜高田", "storeName": "Ole深圳湾睿印店", "lng": 113.968187, "lat": 22.524888 },
+{ "brand": "东亚", "storeName": "Ole深圳湾睿印店", "lng": 113.968187, "lat": 22.524888 },
+{ "brand": "野村", "storeName": "Ole温州万象城店", "lng": 120.685486, "lat": 27.95405 },
+{ "brand": "野村", "storeName": "blt昆明同德广场店", "lng": 102.723587, "lat": 25.068258 },
+{ "brand": "野村", "storeName": "Ole郑州郑东万象城店", "lng": 113.764208, "lat": 34.765546 },
+{ "brand": "野村", "storeName": "Ole太原万象城店", "lng": 112.528539, "lat": 37.807606 },
+{ "brand": "七尾", "storeName": "Ole深圳湾睿印店", "lng": 113.968187, "lat": 22.524888 },
+{ "brand": "鸭川", "storeName": "Ole深圳湾睿印店", "lng": 113.968187, "lat": 22.524888 },
+{ "brand": "野村", "storeName": "blt苏州春风里店", "lng": 120.616718, "lat": 31.135734 },
+{ "brand": "野村", "storeName": "Ole深圳湾睿印店", "lng": 113.968187, "lat": 22.524888 },
+{ "brand": "野村", "storeName": "Ole兰州万象城店", "lng": 103.845034, "lat": 36.053615 },
+{ "brand": "伊之助", "storeName": "Ole深圳湾睿印店", "lng": 113.968187, "lat": 22.524888 },
+{ "brand": "玛璐托", "storeName": "Ole深圳湾睿印店", "lng": 113.968187, "lat": 22.524888 },
+{ "brand": "野村", "storeName": "Ole合肥万象城店", "lng": 117.229984, "lat": 31.798915 },
+{ "brand": "野村", "storeName": "Ole贵阳万象汇店", "lng": 106.621518, "lat": 26.620104 },
+{ "brand": "丸胜高田", "storeName": "Ole深圳海上世界店", "lng": 113.915897, "lat": 22.487126 },
+{ "brand": "野村", "storeName": "Ole上海浦东嘉里店", "lng": 121.564894, "lat": 31.211943 },
+{ "brand": "野村", "storeName": "blt北京凤凰广场店", "lng": 116.457439, "lat": 39.963253 },
+{ "brand": "野村", "storeName": "Ole厦门宝龙店", "lng": 118.173344, "lat": 24.485234 },
+{ "brand": "野村", "storeName": "Ole无锡万象城店", "lng": 120.282757, "lat": 31.513266 },
+{ "brand": "东亚", "storeName": "Ole深圳海上世界店", "lng": 113.915897, "lat": 22.487126 },
+{ "brand": "野村", "storeName": "Ole贵阳逸天城店", "lng": 106.722673, "lat": 26.562866 },
+{ "brand": "野村", "storeName": "Ole长沙万象城店", "lng": 112.950185, "lat": 28.218534 },
+{ "brand": "野村", "storeName": "Ole西安万象城店", "lng": 108.949596, "lat": 34.194802 },
+{ "brand": "七尾", "storeName": "Ole深圳海上世界店", "lng": 113.915897, "lat": 22.487126 },
+{ "brand": "野村", "storeName": "blt厦门SM广场店", "lng": 118.124804, "lat": 24.501273 },
+{ "brand": "鸭川", "storeName": "Ole深圳海上世界店", "lng": 113.915897, "lat": 22.487126 },
+{ "brand": "野村", "storeName": "Ole昆明恒隆店", "lng": 102.722626, "lat": 25.037103 },
+{ "brand": "野村", "storeName": "Ole北京大悦城店", "lng": 116.517886, "lat": 39.924529 },
+{ "brand": "野村", "storeName": "Ole深圳海上世界店", "lng": 113.915897, "lat": 22.487126 },
+{ "brand": "野村", "storeName": "Ole成都太古里店", "lng": 104.084664, "lat": 30.6536 },
+{ "brand": "野村", "storeName": "Ole北京金融街店", "lng": 116.361513, "lat": 39.915576 },
+{ "brand": "野村", "storeName": "Ole上海南丰城店", "lng": 121.407728, "lat": 31.207237 },
+{ "brand": "野村", "storeName": "Ole长春万象城店", "lng": 125.327782, "lat": 43.879425 },
+{ "brand": "野村", "storeName": "Ole宁波和义大道店", "lng": 121.555726, "lat": 29.87332 },
+{ "brand": "野村", "storeName": "Ole天津恒隆店", "lng": 117.20066, "lat": 39.12739 },
+{ "brand": "野村", "storeName": "Ole上海环球港店", "lng": 121.413525, "lat": 31.235125 },
+{ "brand": "野村", "storeName": "blt厦门SM广场店", "lng": 118.124804, "lat": 24.501273 },
+{ "brand": "伊之助", "storeName": "Ole呼和浩特万象城店", "lng": 111.674675, "lat": 40.804766 },
+{ "brand": "伊之助", "storeName": "Ole深圳海上世界店", "lng": 113.915897, "lat": 22.487126 },
+{ "brand": "伊之助", "storeName": "Ole厦门万象城店", "lng": 118.11101, "lat": 24.47225 },
+{ "brand": "伊之助", "storeName": "Ole上海港汇店", "lng": 121.43778, "lat": 31.194926 },
+{ "brand": "玛璐托", "storeName": "Ole深圳海上世界店", "lng": 113.915897, "lat": 22.487126 },
+{ "brand": "伊之助", "storeName": "Ole济南万象城店", "lng": 117.099525, "lat": 36.658114 },
+{ "brand": "伊之助", "storeName": "blt沈阳万象汇店", "lng": 123.372651, "lat": 41.795172 },
+{ "brand": "伊之助", "storeName": "Ole成都IFS店", "lng": 104.081893, "lat": 30.655003 },
+{ "brand": "伊之助", "storeName": "Ole大连柏威年店", "lng": 121.628771, "lat": 38.918114 },
+{ "brand": "丸胜高田", "storeName": "Ole深圳海岸城店", "lng": 113.935647, "lat": 22.516961 },
+{ "brand": "伊之助", "storeName": "Ole上海陆家嘴店", "lng": 121.515548, "lat": 31.231384 },
+{ "brand": "伊之助", "storeName": "Ole昆明万象城店", "lng": 102.73322, "lat": 25.028942 },
+{ "brand": "伊之助", "storeName": "Ole石家庄万象城店", "lng": 114.478203, "lat": 38.042312 },
+{ "brand": "伊之助", "storeName": "blt苏州湾店", "lng": 120.616718, "lat": 31.135734 },
+{ "brand": "伊之助", "storeName": "Ole天津恒隆店", "lng": 117.20066, "lat": 39.12739 },
+{ "brand": "伊之助", "storeName": "Ole苏州中心店", "lng": 120.677112, "lat": 31.31621 },
+{ "brand": "伊之助", "storeName": "Ole温州印象城店", "lng": 120.701866, "lat": 27.985783 },
+{ "brand": "伊之助", "storeName": "blt重庆印象城店", "lng": 106.518492, "lat": 29.550395 },
+{ "brand": "伊之助", "storeName": "Ole长沙万象城店", "lng": 112.950185, "lat": 28.218534 },
+{ "brand": "伊之助", "storeName": "Ole西安国贸春天店", "lng": 108.945623, "lat": 34.246669 },
+{ "brand": "东亚", "storeName": "Ole深圳海岸城店", "lng": 113.935647, "lat": 22.516961 },
+{ "brand": "七尾", "storeName": "Ole深圳海岸城店", "lng": 113.935647, "lat": 22.516961 },
+{ "brand": "鸭川", "storeName": "Ole深圳海岸城店", "lng": 113.935647, "lat": 22.516961 },
+{ "brand": "野村", "storeName": "Ole深圳海岸城店", "lng": 113.935647, "lat": 22.516961 },
+{ "brand": "伊之助", "storeName": "Ole深圳海岸城店", "lng": 113.935647, "lat": 22.516961 },
+{ "brand": "玛璐托", "storeName": "Ole深圳海岸城店", "lng": 113.935647, "lat": 22.516961 },
+{ "brand": "伊之助", "storeName": "Ole西安中大国际店", "lng": 108.897341, "lat": 34.221874 },
+{ "brand": "伊之助", "storeName": "Ole杭州嘉里店", "lng": 120.162179, "lat": 30.260722 },
+{ "brand": "丸胜高田", "storeName": "Ole深圳万象天地店", "lng": 113.956254, "lat": 22.541773 },
+{ "brand": "伊之助", "storeName": "Ole贵阳万象城店", "lng": 106.62162, "lat": 26.620677 },
+{ "brand": "伊之助", "storeName": "Ole无锡恒隆店", "lng": 120.297049, "lat": 31.574951 },
+{ "brand": "伊之助", "storeName": "blt大连华南万象汇店", "lng": 121.585232, "lat": 38.99092 },
+{ "brand": "伊之助", "storeName": "Ole北京大融城店", "lng": 116.311645, "lat": 39.981902 },
+{ "brand": "伊之助", "storeName": "Ole青岛万象城店", "lng": 120.378713, "lat": 36.065826 },
+{ "brand": "伊之助", "storeName": "Ole厦门宝龙店", "lng": 118.173344, "lat": 24.485234 },
+{ "brand": "伊之助", "storeName": "Ole大连恒隆店", "lng": 121.609269, "lat": 38.906954 },
+{ "brand": "伊之助", "storeName": "Ole太原王府井店", "lng": 112.559201, "lat": 37.823705 },
+{ "brand": "池莉三轮", "storeName": "Ole深圳万象天地店", "lng": 113.956254, "lat": 22.541773 },
+{ "brand": "东亚", "storeName": "Ole深圳万象天地店", "lng": 113.956254, "lat": 22.541773 },
+{ "brand": "伊之助", "storeName": "Ole重庆国金中心店", "lng": 106.573381, "lat": 29.575712 },
+{ "brand": "伊之助", "storeName": "Ole上海环球港店", "lng": 121.413525, "lat": 31.235125 },
+{ "brand": "伊之助", "storeName": "Ole上海万象城店", "lng": 121.39302, "lat": 31.120899 },
+{ "brand": "伊之助", "storeName": "Ole西安万象城店", "lng": 108.949596, "lat": 34.194802 },
+{ "brand": "七尾", "storeName": "Ole深圳万象天地店", "lng": 113.956254, "lat": 22.541773 },
+{ "brand": "伊之助", "storeName": "Ole沈阳恒隆店", "lng": 123.434897, "lat": 41.802253 },
+{ "brand": "伊之助", "storeName": "Ole上海静安嘉里店", "lng": 121.450059, "lat": 31.224105 },
+{ "brand": "鸭川", "storeName": "Ole深圳万象天地店", "lng": 113.956254, "lat": 22.541773 },
+{ "brand": "野村", "storeName": "Ole深圳万象天地店", "lng": 113.956254, "lat": 22.541773 },
+{ "brand": "伊之助", "storeName": "Ole深圳万象天地店", "lng": 113.956254, "lat": 22.541773 },
+{ "brand": "伊之助", "storeName": "Ole天津万象城店", "lng": 117.212016, "lat": 39.089993 },
+{ "brand": "玛璐托", "storeName": "Ole深圳万象天地店", "lng": 113.956254, "lat": 22.541773 },
+{ "brand": "丸胜高田", "storeName": "Ole深圳益田假日店", "lng": 113.975392, "lat": 22.537437 },
+{ "brand": "东亚", "storeName": "Ole深圳益田假日店", "lng": 113.975392, "lat": 22.537437 },
+{ "brand": "伊之助", "storeName": "Ole重庆解放碑店", "lng": 106.577185, "lat": 29.557734 },
+{ "brand": "伊之助", "storeName": "blt合肥高新银泰店", "lng": 117.133261, "lat": 31.832305 },
+{ "brand": "伊之助", "storeName": "Ole成都万象城店", "lng": 104.116503, "lat": 30.649066 },
+{ "brand": "伊之助", "storeName": "Ole郑州郑东万象城店", "lng": 113.764208, "lat": 34.765546 },
+{ "brand": "伊之助", "storeName": "Ole太原万象城店", "lng": 112.528539, "lat": 37.807606 },
+{ "brand": "七尾", "storeName": "Ole深圳益田假日店", "lng": 113.975392, "lat": 22.537437 },
+{ "brand": "鸭川", "storeName": "Ole深圳益田假日店", "lng": 113.975392, "lat": 22.537437 },
+{ "brand": "野村", "storeName": "Ole深圳益田假日店", "lng": 113.975392, "lat": 22.537437 },
+{ "brand": "伊之助", "storeName": "Ole福州万象城店", "lng": 119.276846, "lat": 26.075202 },
+{ "brand": "伊之助", "storeName": "Ole深圳益田假日店", "lng": 113.975392, "lat": 22.537437 },
+{ "brand": "伊之助", "storeName": "Ole温州万象城店", "lng": 120.685486, "lat": 27.95405 },
+{ "brand": "玛璐托", "storeName": "Ole深圳益田假日店", "lng": 113.975392, "lat": 22.537437 },
+{ "brand": "伊之助", "storeName": "Ole兰州万象城店", "lng": 103.845034, "lat": 36.053615 },
+{ "brand": "伊之助", "storeName": "Ole济南恒隆店", "lng": 117.024037, "lat": 36.664548 },
+{ "brand": "伊之助", "storeName": "Ole重庆观音桥店", "lng": 106.531001, "lat": 29.578493 },
+{ "brand": "山本三轮", "storeName": "Ole深圳湾万象城二期店", "lng": 113.942034, "lat": 22.514808 },
+{ "brand": "伊之助", "storeName": "Ole沈阳万象城店", "lng": 123.434541, "lat": 41.775771 },
+{ "brand": "丸胜高田", "storeName": "Ole深圳湾万象城二期店", "lng": 113.942034, "lat": 22.514808 },
+{ "brand": "伊之助", "storeName": "Ole上海南丰城店", "lng": 121.407728, "lat": 31.207237 },
+{ "brand": "伊之助", "storeName": "Ole重庆万象城店", "lng": 106.518383, "lat": 29.5154 },
+{ "brand": "伊之助", "storeName": "Ole北京国贸三期店", "lng": 116.45879, "lat": 39.912293 },
+{ "brand": "伊之助", "storeName": "Ole合肥万象城店", "lng": 117.229984, "lat": 31.798915 },
+{ "brand": "伊之助", "storeName": "blt宁波万象城店", "lng": 121.553484, "lat": 29.898322 },
+{ "brand": "池莉三轮", "storeName": "Ole深圳湾万象城二期店", "lng": 113.942034, "lat": 22.514808 },
+{ "brand": "伊之助", "storeName": "blt苏州春风里店", "lng": 120.616718, "lat": 31.135734 },
+{ "brand": "伊之助", "storeName": "Ole贵阳万象汇店", "lng": 106.621518, "lat": 26.620104 },
+{ "brand": "东亚", "storeName": "Ole深圳湾万象城二期店", "lng": 113.942034, "lat": 22.514808 },
+{ "brand": "伊之助", "storeName": "blt昆明同德广场店", "lng": 102.723587, "lat": 25.068258 },
+{ "brand": "伊之助", "storeName": "Ole上海浦东嘉里店", "lng": 121.564894, "lat": 31.211943 },
+{ "brand": "伊之助", "storeName": "Ole南京金陵中环店", "lng": 118.782177, "lat": 32.040937 },
+{ "brand": "鸭川", "storeName": "Ole深圳湾万象城二期店", "lng": 113.942034, "lat": 22.514808 },
+{ "brand": "野村", "storeName": "Ole深圳湾万象城二期店", "lng": 113.942034, "lat": 22.514808 },
+{ "brand": "伊之助", "storeName": "blt天津嘉里汇店", "lng": 117.217183, "lat": 39.127682 },
+{ "brand": "伊之助", "storeName": "Ole贵阳逸天城店", "lng": 106.722673, "lat": 26.562866 },
+{ "brand": "伊之助", "storeName": "blt天津印象城店", "lng": 117.191803, "lat": 39.131387 },
+{ "brand": "丸胜高田", "storeName": "Ole深圳万象前海店", "lng": 113.899626, "lat": 22.531015 },
+{ "brand": "伊之助", "storeName": "Ole郑州万象城店", "lng": 113.662952, "lat": 34.754429 },
+{ "brand": "伊之助", "storeName": "blt北京凤凰广场店", "lng": 116.457439, "lat": 39.963253 },
+{ "brand": "伊之助", "storeName": "Ole杭州万象城店", "lng": 120.213715, "lat": 30.248908 },
+{ "brand": "东亚", "storeName": "Ole深圳万象前海店", "lng": 113.899626, "lat": 22.531015 },
+{ "brand": "伊之助", "storeName": "Ole上海大丸百货店", "lng": 121.485967, "lat": 31.23831 },
+{ "brand": "伊之助", "storeName": "Ole长春万象城店", "lng": 125.327782, "lat": 43.879425 },
+{ "brand": "伊之助", "storeName": "Ole昆明恒隆店", "lng": 102.722626, "lat": 25.037103 },
+{ "brand": "伊之助", "storeName": "Ole成都太古里店", "lng": 104.084664, "lat": 30.6536 },
+{ "brand": "伊之助", "storeName": "Ole北京金融街店", "lng": 116.361513, "lat": 39.915576 },
+{ "brand": "伊之助", "storeName": "Ole无锡万象城店", "lng": 120.282757, "lat": 31.513266 },
+{ "brand": "七尾", "storeName": "Ole深圳万象前海店", "lng": 113.899626, "lat": 22.531015 },
+{ "brand": "伊之助", "storeName": "Ole宁波和义大道店", "lng": 121.555726, "lat": 29.87332 },
+{ "brand": "鸭川", "storeName": "Ole深圳万象前海店", "lng": 113.899626, "lat": 22.531015 },
+{ "brand": "伊之助", "storeName": "Ole北京大悦城店", "lng": 116.517886, "lat": 39.924529 },
+{ "brand": "伊之助", "storeName": "blt北京银座店", "lng": 116.43559, "lat": 39.939994 },
+{ "brand": "野村", "storeName": "Ole深圳万象前海店", "lng": 113.899626, "lat": 22.531015 },
+{ "brand": "伊之助", "storeName": "Ole深圳万象前海店", "lng": 113.899626, "lat": 22.531015 },
+{ "brand": "玛璐托", "storeName": "blt沈阳万象汇店", "lng": 123.372651, "lat": 41.795172 },
+{ "brand": "玛璐托", "storeName": "Ole成都IFS店", "lng": 104.081893, "lat": 30.655003 },
+{ "brand": "玛璐托", "storeName": "Ole济南万象城店", "lng": 117.099525, "lat": 36.658114 },
+{ "brand": "玛璐托", "storeName": "Ole合肥万象城店", "lng": 117.229984, "lat": 31.798915 },
+{ "brand": "玛璐托", "storeName": "blt合肥高新银泰店", "lng": 117.133261, "lat": 31.832305 },
+{ "brand": "丸胜高田", "storeName": "Ole武汉万象城店", "lng": 114.280587, "lat": 30.599266 },
+{ "brand": "玛璐托", "storeName": "Ole西安中大国际店", "lng": 108.897341, "lat": 34.221874 },
+{ "brand": "东亚", "storeName": "Ole武汉万象城店", "lng": 114.280587, "lat": 30.599266 },
+{ "brand": "玛璐托", "storeName": "Ole上海万象城店", "lng": 121.39302, "lat": 31.120899 },
+{ "brand": "玛璐托", "storeName": "Ole上海环球港店", "lng": 121.413525, "lat": 31.235125 },
+{ "brand": "玛璐托", "storeName": "Ole沈阳万象城店", "lng": 123.434541, "lat": 41.775771 },
+{ "brand": "玛璐托", "storeName": "Ole成都万象城店", "lng": 104.116503, "lat": 30.649066 },
+{ "brand": "七尾", "storeName": "Ole武汉万象城店", "lng": 114.280587, "lat": 30.599266 },
+{ "brand": "玛璐托", "storeName": "Ole上海大丸百货店", "lng": 121.485967, "lat": 31.23831 },
+{ "brand": "玛璐托", "storeName": "Ole上海静安嘉里店", "lng": 121.450059, "lat": 31.224105 },
+{ "brand": "鸭川", "storeName": "Ole武汉万象城店", "lng": 114.280587, "lat": 30.599266 },
+{ "brand": "玛璐托", "storeName": "Ole青岛万象城店", "lng": 120.378713, "lat": 36.065826 },
+{ "brand": "玛璐托", "storeName": "Ole贵阳万象汇店", "lng": 106.621518, "lat": 26.620104 },
+{ "brand": "玛璐托", "storeName": "blt昆明同德广场店", "lng": 102.723587, "lat": 25.068258 },
+{ "brand": "玛璐托", "storeName": "Ole温州印象城店", "lng": 120.701866, "lat": 27.985783 },
+{ "brand": "玛璐托", "storeName": "Ole西安国贸春天店", "lng": 108.945623, "lat": 34.246669 },
+{ "brand": "玛璐托", "storeName": "Ole长春万象城店", "lng": 125.327782, "lat": 43.879425 },
+{ "brand": "玛璐托", "storeName": "Ole福州万象城店", "lng": 119.276846, "lat": 26.075202 },
+{ "brand": "玛璐托", "storeName": "Ole上海陆家嘴店", "lng": 121.515548, "lat": 31.231384 },
+{ "brand": "玛璐托", "storeName": "Ole兰州万象城店", "lng": 103.845034, "lat": 36.053615 },
+{ "brand": "野村", "storeName": "Ole武汉万象城店", "lng": 114.280587, "lat": 30.599266 },
+{ "brand": "伊之助", "storeName": "Ole武汉万象城店", "lng": 114.280587, "lat": 30.599266 },
+{ "brand": "玛璐托", "storeName": "Ole无锡万象城店", "lng": 120.282757, "lat": 31.513266 },
+{ "brand": "玛璐托", "storeName": "Ole武汉万象城店", "lng": 114.280587, "lat": 30.599266 },
+{ "brand": "丸胜高田", "storeName": "Ole武汉恒隆广场店", "lng": 114.272962, "lat": 30.57759 },
+{ "brand": "玛璐托", "storeName": "Ole成都太古里店", "lng": 104.084664, "lat": 30.6536 },
+{ "brand": "玛璐托", "storeName": "Ole苏州中心店", "lng": 120.677112, "lat": 31.31621 },
+{ "brand": "东亚", "storeName": "Ole武汉恒隆广场店", "lng": 114.272962, "lat": 30.57759 },
+{ "brand": "玛璐托", "storeName": "Ole上海南丰城店", "lng": 121.407728, "lat": 31.207237 },
+{ "brand": "玛璐托", "storeName": "Ole厦门万象城店", "lng": 118.11101, "lat": 24.47225 },
+{ "brand": "玛璐托", "storeName": "Ole贵阳万象城店", "lng": 106.62162, "lat": 26.620677 },
+{ "brand": "玛璐托", "storeName": "Ole太原万象城店", "lng": 112.528539, "lat": 37.807606 },
+{ "brand": "玛璐托", "storeName": "Ole杭州嘉里店", "lng": 120.162179, "lat": 30.260722 },
+{ "brand": "玛璐托", "storeName": "Ole石家庄万象城店", "lng": 114.478203, "lat": 38.042312 },
+{ "brand": "玛璐托", "storeName": "Ole西安万象城店", "lng": 108.949596, "lat": 34.194802 },
+{ "brand": "七尾", "storeName": "Ole武汉恒隆广场店", "lng": 114.272962, "lat": 30.57759 },
+{ "brand": "玛璐托", "storeName": "Ole太原王府井店", "lng": 112.559201, "lat": 37.823705 },
+{ "brand": "玛璐托", "storeName": "Ole天津万象城店", "lng": 117.212016, "lat": 39.089993 },
+{ "brand": "鸭川", "storeName": "Ole武汉恒隆广场店", "lng": 114.272962, "lat": 30.57759 },
+{ "brand": "野村", "storeName": "Ole武汉恒隆广场店", "lng": 114.272962, "lat": 30.57759 },
+{ "brand": "玛璐托", "storeName": "Ole贵阳逸天城店", "lng": 106.722673, "lat": 26.562866 },
+{ "brand": "玛璐托", "storeName": "Ole昆明恒隆店", "lng": 102.722626, "lat": 25.037103 },
+{ "brand": "玛璐托", "storeName": "blt苏州湾店", "lng": 120.616718, "lat": 31.135734 },
+{ "brand": "伊之助", "storeName": "Ole武汉恒隆广场店", "lng": 114.272962, "lat": 30.57759 },
+{ "brand": "玛璐托", "storeName": "Ole杭州万象城店", "lng": 120.213715, "lat": 30.248908 },
+{ "brand": "玛璐托", "storeName": "Ole武汉恒隆广场店", "lng": 114.272962, "lat": 30.57759 },
+{ "brand": "玛璐托", "storeName": "Ole南京金陵中环店", "lng": 118.782177, "lat": 32.040937 },
+{ "brand": "池莉三轮", "storeName": "Ole长沙国金店", "lng": 112.981355, "lat": 28.191156 },
+{ "brand": "东亚", "storeName": "Ole长沙国金店", "lng": 112.981355, "lat": 28.191156 },
+{ "brand": "七尾", "storeName": "Ole长沙国金店", "lng": 112.981355, "lat": 28.191156 },
+{ "brand": "玛璐托", "storeName": "Ole上海港汇店", "lng": 121.43778, "lat": 31.194926 },
+{ "brand": "玛璐托", "storeName": "Ole重庆解放碑店", "lng": 106.577185, "lat": 29.557734 },
+{ "brand": "玛璐托", "storeName": "Ole重庆万象城店", "lng": 106.518383, "lat": 29.5154 },
+{ "brand": "鸭川", "storeName": "Ole长沙国金店", "lng": 112.981355, "lat": 28.191156 },
+{ "brand": "玛璐托", "storeName": "Ole北京金融街店", "lng": 116.361513, "lat": 39.915576 },
+{ "brand": "野村", "storeName": "Ole长沙国金店", "lng": 112.981355, "lat": 28.191156 },
+{ "brand": "伊之助", "storeName": "Ole长沙国金店", "lng": 112.981355, "lat": 28.191156 },
+{ "brand": "玛璐托", "storeName": "Ole长沙国金店", "lng": 112.981355, "lat": 28.191156 },
+{ "brand": "玛璐托", "storeName": "Ole重庆国金中心店", "lng": 106.573381, "lat": 29.575712 },
+{ "brand": "玛璐托", "storeName": "Ole郑州郑东万象城店", "lng": 113.764208, "lat": 34.765546 },
+{ "brand": "玛璐托", "storeName": "Ole济南恒隆店", "lng": 117.024037, "lat": 36.664548 },
+{ "brand": "玛璐托", "storeName": "Ole郑州万象城店", "lng": 113.662952, "lat": 34.754429 },
+{ "brand": "玛璐托", "storeName": "Ole大连恒隆店", "lng": 121.609269, "lat": 38.906954 },
+{ "brand": "玛璐托", "storeName": "Ole北京大悦城店", "lng": 116.517886, "lat": 39.924529 },
+{ "brand": "野村", "storeName": "blt南宁万象汇店", "lng": 108.38521, "lat": 22.725146 },
+{ "brand": "玛璐托", "storeName": "Ole昆明万象城店", "lng": 102.73322, "lat": 25.028942 },
+{ "brand": "伊之助", "storeName": "blt南宁万象汇店", "lng": 108.38521, "lat": 22.725146 },
+{ "brand": "丸胜高田", "storeName": "blt中山利和店", "lng": 113.383244, "lat": 22.512276 },
+{ "brand": "东亚", "storeName": "blt中山利和店", "lng": 113.383244, "lat": 22.512276 },
+{ "brand": "玛璐托", "storeName": "Ole呼和浩特万象城店", "lng": 111.674675, "lat": 40.804766 },
+{ "brand": "七尾", "storeName": "blt中山利和店", "lng": 113.383244, "lat": 22.512276 },
+{ "brand": "玛璐托", "storeName": "Ole北京国贸三期店", "lng": 116.45879, "lat": 39.912293 },
+{ "brand": "鸭川", "storeName": "blt中山利和店", "lng": 113.383244, "lat": 22.512276 },
+{ "brand": "玛璐托", "storeName": "Ole无锡恒隆店", "lng": 120.297049, "lat": 31.574951 },
+{ "brand": "玛璐托", "storeName": "Ole上海浦东嘉里店", "lng": 121.564894, "lat": 31.211943 },
+{ "brand": "玛璐托", "storeName": "Ole温州万象城店", "lng": 120.685486, "lat": 27.95405 },
+{ "brand": "玛璐托", "storeName": "Ole宁波和义大道店", "lng": 121.555726, "lat": 29.87332 },
+{ "brand": "野村", "storeName": "blt中山利和店", "lng": 113.383244, "lat": 22.512276 },
+{ "brand": "玛璐托", "storeName": "Ole重庆观音桥店", "lng": 106.531001, "lat": 29.578493 },
+{ "brand": "玛璐托", "storeName": "Ole北京大融城店", "lng": 116.311645, "lat": 39.981902 },
+{ "brand": "伊之助", "storeName": "blt中山利和店", "lng": 113.383244, "lat": 22.512276 },
+{ "brand": "玛璐托", "storeName": "blt中山利和店", "lng": 113.383244, "lat": 22.512276 },
+{ "brand": "玛璐托", "storeName": "Ole大连柏威年店", "lng": 121.628771, "lat": 38.918114 }
+];
+
+        function loadStoreData() {
+           storeData = embeddedData;
+           initStoreMarkers();
+        }
+
+        // 初始化地图
+        function initMap() {
+            map = new AMap.Map('map-container', {
+                zoom: 5,
+                center: [116.397428, 39.90923],
+                resizeEnable: true,
+                mapStyle: 'amap://styles/normal'
+            });
+            map.addControl(new AMap.Scale());
+            map.addControl(new AMap.Zoom());
+        }
+
+        // 显示中间门店数提示的通用函数
+        function showCenterCountTooltip(text) {
+            // 先移除已存在的提示框
+            document.querySelectorAll('.center-count-tooltip').forEach(tool => tool.remove());
+            
+            // 创建提示框元素
+            const tooltip = document.createElement('div');
+            tooltip.className = 'center-count-tooltip';
+            tooltip.innerText = text;
+            
+            // 添加到页面
+            document.body.appendChild(tooltip);
+            
+            // 3秒后自动移除（和动画时长一致）
+            setTimeout(() => {
+                tooltip.remove();
+            }, 3000);
+        }
+
+       // 直接加载内置数据
+      function loadStoreData() {
+             try {
+                  storeData = embeddedData; // 直接使用我们之前粘贴好的内置数据
+                  initStoreMarkers();
+                  alert(`✅ 数据加载成功！共读取到 ${storeData.length} 条记录`);
+            } catch (error) {
+                  alert(`❌ 数据加载失败：${error.message}`);
+            }
+       }
+
+        // 初始化门店标记
+        function initStoreMarkers() {
+            allMarkers = [];
+            storeData.forEach(store => {
+                if (!store.lng || !store.lat || isNaN(store.lng) || isNaN(store.lat)) return;
+                
+                const oleIcon = new AMap.Icon({
+                    size: new AMap.Size(40, 40),
+                    image: BRAND_ICON_MAP["OLE"],
+                    imageSize: new AMap.Size(40, 40)
+                });
+
+                const marker = new AMap.Marker({
+                    position: [parseFloat(store.lng), parseFloat(store.lat)],
+                    title: store.storeName,
+                    icon: oleIcon,
+                    zIndex: 10
+                });
+
+                // hover仅显示门店名称
+                marker.on('mouseover', function() {
+                    this.openInfoWindow(new AMap.InfoWindow({
+                        content: `<div style="padding: 8px 12px; font-size: 14px;">${store.storeName}</div>`,
+                        offset: new AMap.Pixel(0, -45)
+                    }));
+                });
+                marker.on('mouseout', function() {
+                    this.closeInfoWindow();
+                });
+
+                allMarkers.push(marker);
+            });
+            // 添加标记到地图
+            allMarkers.forEach(marker => marker.setMap(map));
+        }
+
+        // 显示全部门店（仅修正全部门店数统计逻辑）
+        function showAllStores() {
+                 // 新增：如果数据为空，强制加载
+               if (storeData.length === 0) {
+                    loadStoreData();
+               }
+            if (allMarkers.length === 0) {
+                alert('请先加载门店数据！');
+                return;
+            }
+            resetButtonStyle();
+            const allBtn = document.querySelector('.btn-all');
+            allBtn.classList.add('active');
+            
+            // 核心修正：统计去重后的独立门店数（按门店名称去重）
+            const uniqueStoreNames = [...new Set(storeData.map(store => store.storeName))];
+            const realStoreCount = uniqueStoreNames.length;
+            
+            // 显示正确的全部门店数
+            showCenterCountTooltip(`全部门店：${realStoreCount}`);
+            
+            const oleIcon = new AMap.Icon({
+                size: new AMap.Size(40, 40),
+                image: BRAND_ICON_MAP["OLE"],
+                imageSize: new AMap.Size(40, 40)
+            });
+
+            allMarkers.forEach((marker, index) => {
+                marker.setIcon(oleIcon);
+                marker.show();
+            });
+        }
+
+        // 按品牌筛选（保持原有正确逻辑，不修改）
+        function filterByBrand(targetBrand) {
+            if (storeData.length === 0) {
+                loadStoreData();
+    }
+            if (allMarkers.length === 0) {
+                alert('请先加载门店数据！');
+                return;
+            }
+            resetButtonStyle();
+            
+            // 找到当前点击的品牌按钮
+            document.querySelectorAll('.btn-brand').forEach(btn => {
+                if (btn.innerText === targetBrand) {
+                    btn.classList.add('active');
+                }
+            });
+
+            // 创建品牌图标
+            const brandIcon = new AMap.Icon({
+                size: new AMap.Size(40, 40),
+                image: BRAND_ICON_MAP[targetBrand],
+                imageSize: new AMap.Size(40, 40)
+            });
+
+            // 统计匹配的品牌门店数（保持原有正确逻辑）
+            let matchCount = 0;
+            allMarkers.forEach((marker, index) => {
+                const store = storeData[index];
+                if (store.brand && store.brand.includes(targetBrand)) {
+                    matchCount++;
+                    marker.setIcon(brandIcon);
+                    marker.show();
+                } else {
+                    marker.hide();
+                }
+            });
+            
+            // 显示品牌门店数
+            showCenterCountTooltip(`${targetBrand}：${matchCount} 家`);
+            
+            if (matchCount === 0) {
+                alert(`未找到包含 "${targetBrand}" 的门店，请检查Excel数据！`);
+            }
+        }
+
+        // 重置按钮样式
+        function resetButtonStyle() {
+            document.querySelectorAll('.brand-filter-bar button').forEach(btn => {
+                btn.classList.remove('active');
+            });
+        }
+
+        // 页面加载初始化
+        window.onload = function() {
+            initMap();
+            loadStoreData();//fu
+        };
+    </script>
+</body>
+</html>
