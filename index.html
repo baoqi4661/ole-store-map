@@ -1048,7 +1048,26 @@
             initMap();
             loadStoreData();//fu
         };
+        // ========== 手机点击显示门店名（新增，不影响原有功能） ==========
+// 等待地图加载完成
+setTimeout(function() {
+    // 获取所有地图标记
+    var allMarkers = map.getAllOverlays('marker');
+    // 给每个标记加点击显示功能
+    allMarkers.forEach(function(marker) {
+        marker.on('click', function() {
+            // 只显示门店名，样式适配手机
+            var infoWin = new AMap.InfoWindow({
+                content: '<div style="padding: 8px 12px; font-size: 14px; line-height: 1.5;">' + marker.getTitle() + '</div>',
+                offset: new AMap.Pixel(0, -25)
+            });
+            infoWin.open(map, marker.getPosition());
+        });
+    });
+}, 1000);
+// ========== 新增代码结束 ==========
     </script>
 </body>
 
 </html>
+
