@@ -111,13 +111,12 @@
         <button class="btn-brand" onclick="filterByBrand('野村')">野村</button>
         <button class="btn-brand" onclick="filterByBrand('伊之助')">伊之助</button>
         <button class="btn-brand" onclick="filterByBrand('玛璐托')">玛璐托</button>
-    </div>
-    <!-- 搜索框区域 -->
+          <!-- 搜索框区域 -->
 <div class="search-box" style="margin-left: 20px; display: flex; align-items: center; gap: 8px;">
   <input type="text" id="storeSearchInput" placeholder="输入门店/品牌名搜索（如：金融街）" style="padding: 6px 12px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px; width: 200px;">
   <button id="searchBtn" style="padding: 6px 16px; background: #409eff; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 14px;">搜索</button>
   <button id="clearSearchBtn" style="padding: 6px 16px; background: #67c23a; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 14px;">清空</button>
-</div>
+    </div>
     <button class="load-data-btn" style="display: none;"onclick="document.getElementById('fileInput').click()">📂 选择门店Excel数据文件</button>
     <input type="file" id="fileInput" accept=".xlsx, .xls" onchange="loadStoreData(this.files)">
     <div id="map-container"></div>
@@ -1200,6 +1199,7 @@ if (searchInput) {
 </body>
 
 </html>
+
 
 
 
