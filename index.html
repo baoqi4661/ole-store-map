@@ -1164,53 +1164,56 @@ setTimeout(function() {
 
   // 3. 搜索核心函数
   function searchStores(keyword) {
-    if (!keyword.trim()) {
-      alert('请输入搜索关键词（如：金融街）');
-      return;
-    }
-
-    // 门店数据变量名：storeData
-    let matchedStores = [];
-    if (window.storeData && window.storeData.length > 0) {
-      matchedStores = window.storeData.filter(store => {
-        // 搜索门店名/品牌名
-        const matchKeyword = store['门店名称'].includes(keyword) || store['品牌名称'].includes(keyword);
-        // 按供应商权限过滤
-        if (supplier && supplier !== 'ZY') {
-          return matchKeyword && allowBrands.includes(store['品牌名称']);
-        }
-        return matchKeyword;
-      });
-    } else {
-      alert('未加载门店数据，请先导入Excel！');
-      return;
-    }
-
-    if (matchedStores.length === 0) {
-      alert(`未找到含“${keyword}”的门店！`);
-      return;
-    }
-
-    // 4. 地图居中+缩放（高德地图）
-    const map = window.map; // 这里先假设你的地图实例变量名是 map
-    if (!map) {
-      alert('未找到地图实例，请检查地图变量名！');
-      return;
-    }
-
-    // 计算中心点
-    const lngs = matchedStores.map(s => s.经度);
-    const lats = matchedStores.map(s => s.纬度);
-    const centerLng = (Math.max(...lngs) + Math.min(...lngs)) / 2;
-    const centerLat = (Math.max(...lats) + Math.min(...lats)) / 2;
-
-    // 地图居中并放大
-    map.setZoom(16);
-    map.setCenter([centerLng, centerLat]);
-
-    // 5. 绘制环形品牌标签
-    drawCircleBrands(matchedStores, centerLng, centerLat);
+  if (!keyword.trim()) {
+    alert('请输入搜索关键词（如：金融街）');
+    return;
   }
+
+  // 兼容预加载/导入的门店数据
+  let storeDataList = window.storeData || [];
+  if (storeDataList.length === 0) {
+    alert('未加载门店数据，请先导入Excel！');
+    return;
+  }
+
+  // 模糊匹配：门店名称/品牌名，忽略大小写
+  const keywordLower = keyword.toLowerCase();
+  let matchedStores = storeDataList.filter(store => {
+    const storeName = (store['门店名称'] || '').toLowerCase();
+    const brandName = (store['品牌'] || '').toLowerCase();
+    return storeName.includes(keywordLower) || brandName.includes(keywordLower);
+  });
+
+  // 供应商权限过滤
+  if (supplier && supplier !== 'ZY') {
+    matchedStores = matchedStores.filter(store => allowBrands.includes(store['品牌']));
+  }
+
+  if (matchedStores.length === 0) {
+    alert(`未找到含“${keyword}”的门店！试试搜索品牌名（如：长工酱油）`);
+    return;
+  }
+
+  // 地图定位到目标门店
+  const map = window.map;
+  if (!map) {
+    alert('地图加载失败！');
+    return;
+  }
+
+  // 计算门店中心点（兼容经度/纬度 / lng/lat字段）
+  const lngs = matchedStores.map(s => s.经度 || s.lng);
+  const lats = matchedStores.map(s => s.纬度 || s.lat);
+  const centerLng = (Math.max(...lngs) + Math.min(...lngs)) / 2;
+  const centerLat = (Math.max(...lats) + Math.min(...lats)) / 2;
+
+  // 放大并居中地图
+  map.setZoom(16);
+  map.setCenter([centerLng, centerLat]);
+
+  // 显示品牌标签
+  drawCircleBrands(matchedStores, centerLng, centerLat);
+}
 
   // 6. 环形品牌标签绘制函数
   function drawCircleBrands(stores, centerLng, centerLat) {
@@ -1295,6 +1298,7 @@ setTimeout(function() {
 </body>
 
 </html>
+
 
 
 
