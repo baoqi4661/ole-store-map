@@ -139,6 +139,15 @@
     placeholder="搜索门店/品牌（如：金融街）" 
     style="padding: 8px 12px; border: 1px solid #ccc; border-radius: 4px; width: 300px; font-size: 14px;"
   >
+  <!-- 导入Excel按钮 -->
+<button 
+  class="load-data-btn" 
+  onclick="document.getElementById('fileInput').click()"
+  style="padding: 8px 16px; background: #ffc107; color: #333; border: none; border-radius: 4px; cursor: pointer; font-size: 14px; margin-right: 10px;"
+>
+  📂 导入Excel
+</button>
+<input type="file" id="fileInput" accept=".xlsx, .xls" onchange="loadStoreData(this.files)" style="display: none;">  
   <button 
     id="searchBtn" 
     style="padding: 8px 20px; background: #409eff; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 14px;"
@@ -1288,6 +1297,7 @@ setTimeout(function() {
 </body>
 
 </html>
+
 
 
 
