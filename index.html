@@ -1066,8 +1066,50 @@ setTimeout(function() {
     });
 }, 1000);
 // ========== 新增代码结束 ==========
+     // ========== 供应商权限控制：只控制品牌按钮，门店全部显示 ==========
+(function(){
+    // 1. 从链接获取供应商参数：?supplier=ZY 或 ZS 或 SW
+    const urlParams = new URLSearchParams(window.location.search);
+    const supplier = urlParams.get('supplier');
+
+    // 没有供应商参数 → 显示全部（你自己用）
+    if (!supplier) return;
+
+    // 2. 权限规则（完全按你要求写死）
+    const rules = {
+        ZY: 'showAll',      // 看全部
+        ZS: 'onlySelfBrand',// 只看自己品牌按钮
+        SW: 'onlySelfBrand' // 只看自己品牌按钮
+    };
+
+    const rule = rules[supplier];
+    if (!rule) return;
+
+    // 3. 延迟执行，保证页面加载完
+    setTimeout(() => {
+        // 获取所有品牌按钮（你现在页面上的按钮）
+        const btns = document.querySelectorAll('.brand-btn');
+
+        if (rule === 'showAll') {
+            // ZY：全部显示
+            btns.forEach(btn => btn.style.display = '');
+        } else {
+            // ZS / SW：只显示自己品牌的按钮
+            btns.forEach(btn => {
+                const btnBrand = btn.textContent.trim();
+                // 查找这个品牌属于当前供应商吗
+                const isMyBrand = window.storeData.some(item => 
+                    item.品牌名称 === btnBrand && item.供应商 === supplier
+                );
+                btn.style.display = isMyBrand ? '' : 'none';
+            });
+        }
+    }, 600);
+})();
+// ========== 权限控制结束 ==========   
     </script>
 </body>
 
 </html>
+
 
