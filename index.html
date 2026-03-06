@@ -891,21 +891,37 @@
            initStoreMarkers();
         }
 
-        // 初始化地图
-        function initMap() {
-            map = new AMap.Map('map-container', {
-                zoom: 5,
-                center: [116.397428, 39.90923],
-                resizeEnable: true,
-                mapStyle: 'amap://styles/normal'
-            });
-            map.addControl(new AMap.Scale());
-            map.addControl(new AMap.Zoom());
-        }
-        // 页面加载完成后初始化地图
-window.onload = function() {
+       // 全局地图对象
+let map = null;
+
+// 初始化地图函数
+function initMap() {
+  // 确保高德地图API已加载
+  if (typeof AMap === 'undefined') {
+    alert('高德地图API加载失败，请检查网络或API密钥！');
+    return;
+  }
+
+  // 创建地图实例
+  map = new AMap.Map("map-container", {
+    zoom: 12,          // 初始缩放级别（更大，更容易看到效果）
+    center: [116.403322, 39.92025], // 初始中心点（北京）
+    resizeEnable: true // 允许地图自适应容器大小
+  });
+
+  // 添加地图控件（可选，方便操作）
+  map.addControl(new AMap.Scale());
+  map.addControl(new AMap.ToolBar());
+}
+
+// 页面加载完成后立即初始化地图
+document.addEventListener('DOMContentLoaded', function() {
   initMap();
-};
+});
+        // 页面加载完成后初始化地图
+document.addEventListener('DOMContentLoaded', function() {
+  initMap();
+});
 
         // 显示中间门店数提示的通用函数
         function showCenterCountTooltip(text) {
@@ -1204,6 +1220,7 @@ if (searchInput) {
 </body>
 
 </html>
+
 
 
 
