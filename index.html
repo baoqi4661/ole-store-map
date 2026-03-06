@@ -1112,10 +1112,94 @@ setTimeout(function() {
         }
     }, 600);
 })();
-// ========== 权限控制结束 ==========   
+// ========== 权限控制结束 ==========  
+    // ========== 门店搜索功能 ==========
+// 1. 获取搜索相关的DOM元素
+const searchInput = document.getElementById('storeSearchInput');
+const searchBtn = document.getElementById('searchBtn');
+const clearSearchBtn = document.getElementById('clearSearchBtn');
+
+// 2. 搜索核心函数
+function searchStores(keyword) {
+  if (!keyword.trim()) {
+    alert('请输入搜索关键词（如：金融街）');
+    return;
+  }
+
+  // 检查是否有门店数据
+  if (!window.storeData || window.storeData.length === 0) {
+    alert('未加载门店数据，请先导入Excel！');
+    return;
+  }
+
+  // 模糊匹配（忽略大小写）
+  const keywordLower = keyword.toLowerCase();
+  const matchedStores = window.storeData.filter(store => {
+    const storeName = (store['门店名称'] || '').toLowerCase();
+    const brandName = (store['品牌'] || '').toLowerCase();
+    return storeName.includes(keywordLower) || brandName.includes(keywordLower);
+  });
+
+  if (matchedStores.length === 0) {
+    alert(`未找到含“${keyword}”的门店！试试搜索品牌名（如：长工酱油）`);
+    return;
+  }
+
+  // 地图定位到匹配的门店
+  const lngs = matchedStores.map(s => s.经度 || s.lng);
+  const lats = matchedStores.map(s => s.纬度 || s.lat);
+  const centerLng = (Math.max(...lngs) + Math.min(...lngs)) / 2;
+  const centerLat = (Math.max(...lats) + Math.min(...lats)) / 2;
+
+  map.setZoom(16);
+  map.setCenter([centerLng, centerLat]);
+
+  // 高亮显示匹配的门店
+  matchedStores.forEach(store => {
+    if (store.经度 && store.纬度) {
+      new AMap.Marker({
+        position: [store.经度, store.纬度],
+        icon: new AMap.Icon({
+          size: new AMap.Size(30, 30),
+          image: 'https://webapi.amap.com/theme/v1.3/markers/mark_red.png',
+          imageSize: new AMap.Size(30, 30)
+        }),
+        map: map,
+        zIndex: 100
+      });
+    }
+  });
+}
+
+// 3. 清空搜索并恢复地图
+function clearSearch() {
+  searchInput.value = '';
+  map.setZoom(12);
+  map.setCenter([116.403322, 39.920255]);
+  // 重新绘制所有门店标记
+  if (window.storeData) {
+    drawStoreMarkers(window.storeData);
+  }
+}
+
+// 4. 绑定按钮事件
+if (searchBtn) {
+  searchBtn.addEventListener('click', () => searchStores(searchInput.value));
+}
+if (clearSearchBtn) {
+  clearSearchBtn.addEventListener('click', clearSearch);
+}
+if (searchInput) {
+  searchInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      searchStores(searchInput.value);
+    }
+  });
+}    
     </script>
 </body>
 
 </html>
+
 
 
