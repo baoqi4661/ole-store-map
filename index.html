@@ -902,6 +902,10 @@
             map.addControl(new AMap.Scale());
             map.addControl(new AMap.Zoom());
         }
+        // 页面加载完成后初始化地图
+window.onload = function() {
+  initMap();
+};
 
         // 显示中间门店数提示的通用函数
         function showCenterCountTooltip(text) {
@@ -1206,6 +1210,7 @@ if (searchInput) {
 </body>
 
 </html>
+
 
 
 
