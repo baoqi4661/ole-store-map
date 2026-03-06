@@ -111,6 +111,21 @@
         <button class="btn-brand" onclick="filterByBrand('野村')">野村</button>
         <button class="btn-brand" onclick="filterByBrand('伊之助')">伊之助</button>
         <button class="btn-brand" onclick="filterByBrand('玛璐托')">玛璐托</button>
+      <!-- 搜索框 - 放在品牌按钮栏内部右侧 -->
+<div style="display: flex; align-items: center; gap: 10px; margin-left: auto;">
+  <input 
+    type="text" 
+    id="storeSearchInput" 
+    placeholder="搜索门店/品牌（如：金融街）" 
+    style="padding: 8px 12px; border: 1px solid #ccc; border-radius: 4px; width: 250px; font-size: 14px;"
+  >
+  <button 
+    id="searchBtn" 
+    style="padding: 8px 16px; background: #409eff; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 14px;"
+  >
+    搜索
+  </button>
+</div>  
     </div>
     
     <button class="load-data-btn" style="display: none;"onclick="document.getElementById('fileInput').click()">📂 选择门店Excel数据文件</button>
@@ -1273,6 +1288,7 @@ setTimeout(function() {
 </body>
 
 </html>
+
 
 
 
