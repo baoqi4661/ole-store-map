@@ -1124,7 +1124,7 @@ setTimeout(function() {
     }, 1000);
 })();
 // ========== 权限控制结束 ========== 
-        // ========== 门店搜索+定位功能 ==========
+       // ========== 门店搜索+定位功能 ==========
 (function(){
   // 1. 获取DOM元素
   const searchInput = document.getElementById('storeSearchInput');
@@ -1147,11 +1147,9 @@ setTimeout(function() {
       return;
     }
 
-    // 假设你的门店数据数组是这个变量（如果不是，替换成你实际的变量名）
-    // 先找所有含关键词的门店
+    // 门店数据变量名：storeData
     let matchedStores = [];
-    // 这里需要你替换成实际的门店数据变量名（比如stores/storeList）
-    if (window.storeData) {
+    if (window.storeData && window.storeData.length > 0) {
       matchedStores = window.storeData.filter(store => {
         // 搜索门店名/品牌名
         const matchKeyword = store['门店名称'].includes(keyword) || store['品牌名称'].includes(keyword);
@@ -1162,7 +1160,7 @@ setTimeout(function() {
         return matchKeyword;
       });
     } else {
-      alert('未找到门店数据，请检查数据变量名！');
+      alert('未加载门店数据，请先导入Excel！');
       return;
     }
 
@@ -1171,9 +1169,8 @@ setTimeout(function() {
       return;
     }
 
-    // 4. 地图居中+缩放（适配高德/百度地图，这里以高德为例）
-    // 替换成你的地图实例变量（比如map）
-    const map = window.mapInstance; 
+    // 4. 地图居中+缩放（高德地图）
+    const map = window.map; // 这里先假设你的地图实例变量名是 map
     if (!map) {
       alert('未找到地图实例，请检查地图变量名！');
       return;
@@ -1186,10 +1183,10 @@ setTimeout(function() {
     const centerLat = (Math.max(...lats) + Math.min(...lats)) / 2;
 
     // 地图居中并放大
-    map.setZoom(16); // 缩放级别，可调整
+    map.setZoom(16);
     map.setCenter([centerLng, centerLat]);
 
-    // 5. 绘制环形品牌标签（核心可视化效果）
+    // 5. 绘制环形品牌标签
     drawCircleBrands(matchedStores, centerLng, centerLat);
   }
 
@@ -1200,16 +1197,16 @@ setTimeout(function() {
 
     // 提取去重的品牌名
     const brands = [...new Set(stores.map(s => s['品牌名称']))];
-    const radius = 0.0005; // 环形半径（经纬度单位，可调整）
-    const angleStep = (2 * Math.PI) / brands.length; // 每个品牌的角度间隔
+    const radius = 0.0005; // 环形半径（经纬度单位）
+    const angleStep = (2 * Math.PI) / brands.length;
 
     brands.forEach((brand, index) => {
-      // 计算每个品牌的经纬度位置（绕中心点环形排列）
+      // 计算每个品牌的经纬度位置
       const angle = index * angleStep;
       const lng = centerLng + radius * Math.cos(angle);
       const lat = centerLat + radius * Math.sin(angle);
 
-      // 创建品牌标签（适配高德地图为例）
+      // 创建品牌标签（高德地图）
       const label = new AMap.Text({
         text: brand,
         position: [lng, lat],
@@ -1230,7 +1227,6 @@ setTimeout(function() {
         const brandStores = stores.filter(s => s['品牌名称'] === brand);
         const info = brandStores.map(s => `${s['品牌名称']}-${s['门店名称']}`).join('<br>');
         label.setStyle({ background: 'rgba(64, 158, 255, 0.9)' });
-        // 显示信息弹窗（适配高德地图）
         const infoWindow = new AMap.InfoWindow({ content: info });
         infoWindow.open(map, [lng, lat]);
       });
@@ -1248,10 +1244,10 @@ setTimeout(function() {
       position: [centerLng, centerLat],
       icon: new AMap.Icon({
         size: new AMap.Size(30, 30),
-        image: 'https://webapi.amap.com/theme/v1.3/markers/mark_red.png', // 高亮图标
+        image: 'https://webapi.amap.com/theme/v1.3/markers/mark_red.png',
         imageSize: new AMap.Size(30, 30)
       }),
-      zIndex: 100 // 置顶显示
+      zIndex: 100
     });
     centerMarker.addTo(map);
   }
@@ -1260,12 +1256,10 @@ setTimeout(function() {
   searchBtn.addEventListener('click', () => searchStores(searchInput.value));
   clearBtn.addEventListener('click', () => {
     searchInput.value = '';
-    // 清空标签和高亮图标
     document.querySelectorAll('.circle-brand-label').forEach(el => el.remove());
-    if (window.mapInstance) {
-      window.mapInstance.clearInfoWindow();
-      // 恢复地图默认视角
-      window.mapInstance.setZoom(12);
+    if (window.map) {
+      window.map.clearInfoWindow();
+      window.map.setZoom(12);
     }
   });
 
@@ -1279,6 +1273,7 @@ setTimeout(function() {
 </body>
 
 </html>
+
 
 
 
