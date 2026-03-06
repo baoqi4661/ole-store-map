@@ -912,16 +912,8 @@ function initMap() {
   // 添加地图控件（可选，方便操作）
   map.addControl(new AMap.Scale());
   map.addControl(new AMap.ToolBar());
-}
-
-// 页面加载完成后立即初始化地图
-document.addEventListener('DOMContentLoaded', function() {
-  initMap();
-});
-        // 页面加载完成后初始化地图
-document.addEventListener('DOMContentLoaded', function() {
-  initMap();
-});
+}// 直接初始化地图，跳过事件监听
+initMap();
 
         // 显示中间门店数提示的通用函数
         function showCenterCountTooltip(text) {
@@ -1220,6 +1212,7 @@ if (searchInput) {
 </body>
 
 </html>
+
 
 
 
