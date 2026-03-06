@@ -90,14 +90,7 @@
         .load-data-btn:hover {background: #389e0d;}
         
         /* 地图容器样式 */
-       #map-container {
-  width: 100vw;
-  height: calc(100vh - 80px); /* 适配按钮栏高度，保证地图显示 */
-  margin: 0;
-  padding: 0;
-  position: relative;
-  z-index: 1;
-}
+        #map-container {width: 100vw; height: 100vh; margin-top: 60px;}
         
         /* 隐藏滚动条 */
         .brand-filter-bar::-webkit-scrollbar {display: none;}
@@ -118,11 +111,6 @@
         <button class="btn-brand" onclick="filterByBrand('野村')">野村</button>
         <button class="btn-brand" onclick="filterByBrand('伊之助')">伊之助</button>
         <button class="btn-brand" onclick="filterByBrand('玛璐托')">玛璐托</button>
-          <!-- 搜索框区域 -->
-<div class="search-box" style="margin: 0 20px; display: flex; align-items: center; gap: 8px;">
-  <input type="text" id="storeSearchInput" placeholder="输入门店/品牌名搜索（如：金融街）" style="padding: 6px 12px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px; width: 200px;">
-  <button id="searchBtn" style="padding: 6px 16px; background: #409eff; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 14px;">搜索</button>
-  <button id="clearSearchBtn" style="padding: 6px 16px; background: #67c23a; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 14px;">清空</button>
     </div>
     <button class="load-data-btn" style="display: none;"onclick="document.getElementById('fileInput').click()">📂 选择门店Excel数据文件</button>
     <input type="file" id="fileInput" accept=".xlsx, .xls" onchange="loadStoreData(this.files)">
@@ -891,29 +879,17 @@
            initStoreMarkers();
         }
 
-       // 全局地图对象
-let map = null;
-
-// 初始化地图函数
-function initMap() {
-  // 确保高德地图API已加载
-  if (typeof AMap === 'undefined') {
-    alert('高德地图API加载失败，请检查网络或API密钥！');
-    return;
-  }
-
-  // 创建地图实例
-  map = new AMap.Map("map-container", {
-    zoom: 12,          // 初始缩放级别（更大，更容易看到效果）
-    center: [116.403322, 39.92025], // 初始中心点（北京）
-    resizeEnable: true // 允许地图自适应容器大小
-  });
-
-  // 添加地图控件（可选，方便操作）
-  map.addControl(new AMap.Scale());
-  map.addControl(new AMap.ToolBar());
-}// 直接初始化地图，跳过事件监听
-initMap();
+        // 初始化地图
+        function initMap() {
+            map = new AMap.Map('map-container', {
+                zoom: 5,
+                center: [116.397428, 39.90923],
+                resizeEnable: true,
+                mapStyle: 'amap://styles/normal'
+            });
+            map.addControl(new AMap.Scale());
+            map.addControl(new AMap.Zoom());
+        }
 
         // 显示中间门店数提示的通用函数
         function showCenterCountTooltip(text) {
@@ -1067,6 +1043,12 @@ initMap();
             });
         }
 
+        // 页面加载初始化
+        window.onload = function() {
+            initMap();
+            loadStoreData();//fu
+        };
+        // ========== 手机点击显示门店名（新增，不影响原有功能） ==========
 // 等待地图加载完成
 setTimeout(function() {
     // 获取所有地图标记
@@ -1124,100 +1106,9 @@ setTimeout(function() {
         }
     }, 600);
 })();
-// ========== 权限控制结束 ==========  
-    // ========== 门店搜索功能 ==========
-// 1. 获取搜索相关的DOM元素
-const searchInput = document.getElementById('storeSearchInput');
-const searchBtn = document.getElementById('searchBtn');
-const clearSearchBtn = document.getElementById('clearSearchBtn');
-
-// 2. 搜索核心函数
-function searchStores(keyword) {
-  if (!keyword.trim()) {
-    alert('请输入搜索关键词（如：金融街）');
-    return;
-  }
-
-  // 检查是否有门店数据
-  if (!window.storeData || window.storeData.length === 0) {
-    alert('未加载门店数据，请先导入Excel！');
-    return;
-  }
-
-  // 模糊匹配（忽略大小写）
-  const keywordLower = keyword.toLowerCase();
-  const matchedStores = window.storeData.filter(store => {
-    const storeName = (store['门店名称'] || '').toLowerCase();
-    const brandName = (store['品牌'] || '').toLowerCase();
-    return storeName.includes(keywordLower) || brandName.includes(keywordLower);
-  });
-
-  if (matchedStores.length === 0) {
-    alert(`未找到含“${keyword}”的门店！试试搜索品牌名（如：长工酱油）`);
-    return;
-  }
-
-  // 地图定位到匹配的门店
-  const lngs = matchedStores.map(s => s.经度 || s.lng);
-  const lats = matchedStores.map(s => s.纬度 || s.lat);
-  const centerLng = (Math.max(...lngs) + Math.min(...lngs)) / 2;
-  const centerLat = (Math.max(...lats) + Math.min(...lats)) / 2;
-
-  map.setZoom(16);
-  map.setCenter([centerLng, centerLat]);
-
-  // 高亮显示匹配的门店
-  matchedStores.forEach(store => {
-    if (store.经度 && store.纬度) {
-      new AMap.Marker({
-        position: [store.经度, store.纬度],
-        icon: new AMap.Icon({
-          size: new AMap.Size(30, 30),
-          image: 'https://webapi.amap.com/theme/v1.3/markers/mark_red.png',
-          imageSize: new AMap.Size(30, 30)
-        }),
-        map: map,
-        zIndex: 100
-      });
-    }
-  });
-}
-
-// 3. 清空搜索并恢复地图
-function clearSearch() {
-  searchInput.value = '';
-  map.setZoom(12);
-  map.setCenter([116.403322, 39.920255]);
-  // 重新绘制所有门店标记
-  if (window.storeData) {
-    drawStoreMarkers(window.storeData);
-  }
-}
-
-// 4. 绑定按钮事件
-if (searchBtn) {
-  searchBtn.addEventListener('click', () => searchStores(searchInput.value));
-}
-if (clearSearchBtn) {
-  clearSearchBtn.addEventListener('click', clearSearch);
-}
-if (searchInput) {
-  searchInput.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') {
-      searchStores(searchInput.value);
-    }
-  });
-}    
+// ========== 权限控制结束 ==========   
     </script>
 </body>
 
 </html>
-
-
-
-
-
-
-
-
 
