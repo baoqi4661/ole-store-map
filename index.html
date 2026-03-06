@@ -1106,10 +1106,48 @@ setTimeout(function() {
         }
     }, 600);
 })();
-// ========== 权限控制结束 ==========   
+// ========== 权限控制结束 ========== 
+        // ========== 供应商权限控制：只控制品牌按钮，门店全部显示 ==========
+(function(){
+    // 1. 从链接获取供应商参数：只处理 ZS / SW，ZY 用无参数链接
+    const urlParams = new URLSearchParams(window.location.search);
+    const supplier = urlParams.get('supplier');
+
+    // 没有参数 → 显示全部（ZY/你自己用），直接退出
+    if (!supplier || supplier === 'ZY') return;
+
+    // 2. 硬编码：ZS/SW 对应的品牌（你替换成实际品牌名即可）
+    const supplierBrands = {
+        ZS: ["长工酱油", "池莉三轮", "玛璐托", "七尾", "山本三轮"], // ← 替换成ZS负责的品牌
+        SW: ["伊之助", "东亚", "丸胜高田", "鸭川"]          // ← 替换成SW负责的品牌
+    };
+
+    // 3. 延迟执行，确保按钮加载完成
+    setTimeout(() => {
+        // 获取所有品牌按钮
+        const btns = document.querySelectorAll('.brand-filter-bar button');
+        
+        // 只保留当前供应商的品牌按钮
+        const allowBrands = supplierBrands[supplier] || [];
+        btns.forEach(btn => {
+            const btnBrand = btn.textContent.trim();
+            
+            // 全部门店按钮永远显示
+            if (btnBrand.includes('全部门店')) {
+                btn.style.display = '';
+                return;
+            }
+
+            // 只显示允许的品牌，其他隐藏
+            btn.style.display = allowBrands.includes(btnBrand) ? '' : 'none';
+        });
+    }, 1000);
+})();
+// ========== 权限控制结束 ==========
     </script>
 </body>
 
 </html>
+
 
 
