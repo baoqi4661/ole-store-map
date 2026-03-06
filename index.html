@@ -112,10 +112,31 @@
         <button class="btn-brand" onclick="filterByBrand('伊之助')">伊之助</button>
         <button class="btn-brand" onclick="filterByBrand('玛璐托')">玛璐托</button>
     </div>
+    
     <button class="load-data-btn" style="display: none;"onclick="document.getElementById('fileInput').click()">📂 选择门店Excel数据文件</button>
     <input type="file" id="fileInput" accept=".xlsx, .xls" onchange="loadStoreData(this.files)">
     <div id="map-container"></div>
-
+<!-- 搜索框容器 -->
+<div style="margin: 10px 0; display: flex; align-items: center; gap: 10px;">
+  <input 
+    type="text" 
+    id="storeSearchInput" 
+    placeholder="搜索门店/品牌（如：金融街）" 
+    style="padding: 8px 12px; border: 1px solid #ccc; border-radius: 4px; width: 300px; font-size: 14px;"
+  >
+  <button 
+    id="searchBtn" 
+    style="padding: 8px 20px; background: #409eff; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 14px;"
+  >
+    搜索定位
+  </button>
+  <button 
+    id="clearSearchBtn" 
+    style="padding: 8px 20px; background: #909399; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 14px;"
+  >
+    清空
+  </button>
+</div>
     <script>
         // 品牌图标映射（和你的文件完全匹配）
         const BRAND_ICON_MAP = {
@@ -1103,10 +1124,157 @@ setTimeout(function() {
     }, 1000);
 })();
 // ========== 权限控制结束 ========== 
+       // ========== 门店搜索+定位功能 ==========
+(function(){
+  // 1. 获取DOM元素
+  const searchInput = document.getElementById('storeSearchInput');
+  const searchBtn = document.getElementById('searchBtn');
+  const clearBtn = document.getElementById('clearSearchBtn');
+  
+  // 2. 供应商权限过滤（复用之前的品牌列表）
+  const supplierBrands = {
+    ZS: ["长工酱油", "池莉三轮", "玛瑙托", "七尾", "山本三轮"],
+    SW: ["伊之助", "东亚", "丸胜高田", "鸭川"]
+  };
+  const urlParams = new URLSearchParams(window.location.search);
+  const supplier = urlParams.get('supplier');
+  const allowBrands = supplier ? (supplierBrands[supplier] || []) : [];
+
+  // 3. 搜索核心函数
+  function searchStores(keyword) {
+    if (!keyword.trim()) {
+      alert('请输入搜索关键词（如：金融街）');
+      return;
+    }
+
+    // 门店数据变量名：storeData
+    let matchedStores = [];
+    if (window.storeData && window.storeData.length > 0) {
+      matchedStores = window.storeData.filter(store => {
+        // 搜索门店名/品牌名
+        const matchKeyword = store['门店名称'].includes(keyword) || store['品牌名称'].includes(keyword);
+        // 按供应商权限过滤
+        if (supplier && supplier !== 'ZY') {
+          return matchKeyword && allowBrands.includes(store['品牌名称']);
+        }
+        return matchKeyword;
+      });
+    } else {
+      alert('未加载门店数据，请先导入Excel！');
+      return;
+    }
+
+    if (matchedStores.length === 0) {
+      alert(`未找到含“${keyword}”的门店！`);
+      return;
+    }
+
+    // 4. 地图居中+缩放（高德地图）
+    const map = window.map; // 这里先假设你的地图实例变量名是 map
+    if (!map) {
+      alert('未找到地图实例，请检查地图变量名！');
+      return;
+    }
+
+    // 计算中心点
+    const lngs = matchedStores.map(s => s.经度);
+    const lats = matchedStores.map(s => s.纬度);
+    const centerLng = (Math.max(...lngs) + Math.min(...lngs)) / 2;
+    const centerLat = (Math.max(...lats) + Math.min(...lats)) / 2;
+
+    // 地图居中并放大
+    map.setZoom(16);
+    map.setCenter([centerLng, centerLat]);
+
+    // 5. 绘制环形品牌标签
+    drawCircleBrands(matchedStores, centerLng, centerLat);
+  }
+
+  // 6. 环形品牌标签绘制函数
+  function drawCircleBrands(stores, centerLng, centerLat) {
+    // 先清除之前的标签
+    document.querySelectorAll('.circle-brand-label').forEach(el => el.remove());
+
+    // 提取去重的品牌名
+    const brands = [...new Set(stores.map(s => s['品牌名称']))];
+    const radius = 0.0005; // 环形半径（经纬度单位）
+    const angleStep = (2 * Math.PI) / brands.length;
+
+    brands.forEach((brand, index) => {
+      // 计算每个品牌的经纬度位置
+      const angle = index * angleStep;
+      const lng = centerLng + radius * Math.cos(angle);
+      const lat = centerLat + radius * Math.sin(angle);
+
+      // 创建品牌标签（高德地图）
+      const label = new AMap.Text({
+        text: brand,
+        position: [lng, lat],
+        offset: new AMap.Pixel(-20, -10),
+        className: 'circle-brand-label',
+        style: {
+          background: 'rgba(66, 185, 131, 0.8)',
+          color: 'white',
+          padding: '4px 8px',
+          borderRadius: '4px',
+          fontSize: '12px',
+          border: 'none'
+        }
+      });
+
+      // 鼠标悬浮显示门店信息
+      label.on('mouseover', () => {
+        const brandStores = stores.filter(s => s['品牌名称'] === brand);
+        const info = brandStores.map(s => `${s['品牌名称']}-${s['门店名称']}`).join('<br>');
+        label.setStyle({ background: 'rgba(64, 158, 255, 0.9)' });
+        const infoWindow = new AMap.InfoWindow({ content: info });
+        infoWindow.open(map, [lng, lat]);
+      });
+
+      label.on('mouseout', () => {
+        label.setStyle({ background: 'rgba(66, 185, 131, 0.8)' });
+        map.clearInfoWindow();
+      });
+
+      label.addTo(map);
+    });
+
+    // 居中门店图标高亮
+    const centerMarker = new AMap.Marker({
+      position: [centerLng, centerLat],
+      icon: new AMap.Icon({
+        size: new AMap.Size(30, 30),
+        image: 'https://webapi.amap.com/theme/v1.3/markers/mark_red.png',
+        imageSize: new AMap.Size(30, 30)
+      }),
+      zIndex: 100
+    });
+    centerMarker.addTo(map);
+  }
+
+  // 7. 绑定按钮事件
+  searchBtn.addEventListener('click', () => searchStores(searchInput.value));
+  clearBtn.addEventListener('click', () => {
+    searchInput.value = '';
+    document.querySelectorAll('.circle-brand-label').forEach(el => el.remove());
+    if (window.map) {
+      window.map.clearInfoWindow();
+      window.map.setZoom(12);
+    }
+  });
+
+  // 回车搜索
+  searchInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') searchStores(searchInput.value);
+  });
+})();
+// ========== 搜索功能结束 ==========
     </script>
 </body>
 
 </html>
+
+
 
 
 
